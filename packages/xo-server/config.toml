@@ -120,7 +120,7 @@ threshold = 1000
 # the second for HTTPS. To avoid breaking existing user configs, this convention
 # is kept.
 [http.listen.0]
-port = 1024
+port = 80
 
 # These options are applied to all listen entries.
 [http.listenOptions]

@@ -91,7 +91,7 @@
 # Port on which the server is listening on.
 #
 # Default: undefined
-port = 80
+port = 1024
 
 # Instead of `host` and `port` a path to a UNIX socket may be specified
 # (overrides `host` and `port`).
@@ -107,7 +107,7 @@ port = 80
 # # The only difference is the presence of the certificate and the key.
 # [[http.listen]]
 # #hostname = '127.0.0.1'
-# port = 443
+# port = 1025
 #
 # # Whether to autogenerate a self signed certificate if the `cert` or `key`
 # # files could not be found.
