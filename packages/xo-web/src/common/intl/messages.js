@@ -230,6 +230,8 @@ const messages = {
   customJob: 'Custom Job',
   userPage: 'User',
   xoa: 'XOA',
+  miscellaneous: 'Miscellaneous',
+  edit: 'Edit',
 
   // ----- Support -----
   noSupport: 'No support',

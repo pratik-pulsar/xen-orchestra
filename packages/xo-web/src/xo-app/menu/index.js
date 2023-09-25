@@ -1,3 +1,4 @@
+
 import _ from 'intl'
 import classNames from 'classnames'
 import Component from 'base-component'
@@ -233,36 +234,6 @@ export default class Menu extends Component {
     /* eslint-disable object-property-newline */
     const items = [
       {
-        to: '/home',
-        icon: 'menu-home',
-        label: 'homePage',
-        extra: [missingPatchesWarning],
-        subMenu: [
-          { to: '/home?t=VM', icon: 'vm', label: 'homeVmPage' },
-          nHosts !== 0 && {
-            to: '/home?t=host',
-            icon: 'host',
-            label: 'homeHostPage',
-          },
-          !isEmpty(pools) && {
-            to: '/home?t=pool',
-            icon: 'pool',
-            label: 'homePoolPage',
-            extra: [missingPatchesWarning],
-          },
-          isAdmin && {
-            to: '/home?t=VM-template',
-            icon: 'template',
-            label: 'homeTemplatePage',
-          },
-          !isEmpty(srs) && {
-            to: '/home?t=SR',
-            icon: 'sr',
-            label: 'homeSrPage',
-          },
-        ],
-      },
-      {
         to: '/dashboard/overview',
         icon: 'menu-dashboard',
         label: 'dashboardPage',
@@ -291,10 +262,36 @@ export default class Menu extends Component {
           },
         ],
       },
-      isAdmin && {
-        to: '/self',
-        icon: 'menu-self-service',
-        label: 'selfServicePage',
+      {
+        to: '/home',
+        icon: 'menu-home',
+        label: 'homePage',
+        // extra: [missingPatchesWarning],
+        subMenu: [
+          { to: '/home?t=VM', icon: 'vm', label: 'homeVmPage' },
+          nHosts !== 0 && {
+            to: '/home?t=host',
+            icon: 'host',
+            label: 'homeHostPage',
+          },
+          // !isEmpty(pools) && {
+          true && {
+            to: '/home?t=pool',
+            icon: 'pool',
+            label: 'homePoolPage',
+            // extra: [missingPatchesWarning],
+          },
+          isAdmin && {
+            to: '/home?t=VM-template',
+            icon: 'template',
+            label: 'homeTemplatePage',
+          },
+          !isEmpty(srs) && {
+            to: '/home?t=SR',
+            icon: 'sr',
+            label: 'homeSrPage',
+          },
+        ],
       },
       isAdmin && {
         to: '/backup/overview',
@@ -328,39 +325,7 @@ export default class Menu extends Component {
           },
         ],
       },
-      {
-        to: isAdmin ? 'xoa/update' : 'xoa/notifications',
-        icon: 'menu-xoa',
-        label: 'xoa',
-        extra: [
-          !isAdmin || xoaState === 'upToDate' ? null : <UpdateTag key='update' />,
-          noNotifications ? null : <NotificationTag key='notification' />,
-        ],
-        subMenu: [
-          isAdmin && {
-            to: 'xoa/update',
-            icon: 'menu-update',
-            label: 'updatePage',
-            extra: <UpdateTag />,
-          },
-          isAdmin && {
-            to: 'xoa/licenses',
-            icon: 'menu-license',
-            label: 'licensesPage',
-          },
-          {
-            to: 'xoa/notifications',
-            icon: 'menu-notification',
-            label: 'notificationsPage',
-            extra: <NotificationTag />,
-          },
-          isAdmin && {
-            to: 'xoa/support',
-            icon: 'menu-support',
-            label: 'supportPage',
-          },
-        ],
-      },
+
       isAdmin && {
         to: '/settings/servers',
         icon: 'menu-settings',
@@ -375,6 +340,11 @@ export default class Menu extends Component {
             to: '/settings/users',
             icon: 'menu-settings-users',
             label: 'settingsUsersPage',
+          },
+          {
+            to: '/user',
+            icon: 'menu-settings-users',
+            label: 'edit',
           },
           {
             to: '/settings/groups',
@@ -417,6 +387,87 @@ export default class Menu extends Component {
             icon: 'menu-settings-config',
             label: 'xoConfig',
           },
+          {
+            to: '/self',
+            icon: 'menu-self-service',
+            label: 'miscellaneous',
+            subMenu: [
+              isAdmin && {
+                to: '/self',
+                icon: 'menu-self-service',
+                label: 'selfServicePage',
+              },
+              {
+                to: isAdmin ? 'xoa/update' : 'xoa/notifications',
+                icon: 'menu-xoa',
+                label: 'xoa',
+                // extra: [
+                //   !isAdmin || xoaState === 'upToDate' ? null : <UpdateTag key='update' />,
+                //   noNotifications ? null : <NotificationTag key='notification' />,
+                // ],
+                subMenu: [
+                  isAdmin && {
+                    to: 'xoa/update',
+                    icon: 'menu-update',
+                    label: 'updatePage',
+                    // extra: <UpdateTag />,
+                  },
+                  isAdmin && {
+                    to: 'xoa/licenses',
+                    icon: 'menu-license',
+                    label: 'licensesPage',
+                  },
+                  {
+                    to: 'xoa/notifications',
+                    icon: 'menu-notification',
+                    label: 'notificationsPage',
+                    extra: <NotificationTag />,
+                  },
+                  isAdmin && {
+                    to: 'xoa/support',
+                    icon: 'menu-support',
+                    label: 'supportPage',
+                  },
+                ],
+              },
+              isAdmin && { to: '/about', icon: 'menu-about', label: 'aboutPage' },
+              isAdmin && {
+                to: '/hub/templates',
+                icon: 'menu-hub',
+                label: 'hubPage',
+                subMenu: [
+                  {
+                    to: '/hub/templates',
+                    icon: 'hub-template',
+                    label: 'templatesLabel',
+                  },
+                  {
+                    to: '/hub/recipes',
+                    icon: 'hub-recipe',
+                    label: 'recipesLabel',
+                  },
+                ],
+              },
+              isAdmin && {
+                to: '/proxies',
+                icon: 'proxy',
+                label: 'proxies',
+                extra: [
+                  this._areProxiesOutOfDate() ? (
+                    <Tooltip content={_('proxiesNeedUpgrade')}>
+                      <StackedIcons
+                        icons={[
+                          { color: 'text-success', icon: 'circle', size: 2 },
+                          { icon: 'menu-update', size: 1 },
+                        ]}
+                      />
+                    </Tooltip>
+                  ) : null,
+                ],
+              },
+              isAdmin && { to: '/xosan', icon: 'menu-xosan', label: 'xosan' },
+            ],
+          },
         ],
       },
       isAdmin && {
@@ -437,48 +488,12 @@ export default class Menu extends Component {
           },
         ],
       },
-      isAdmin && {
-        to: '/hub/templates',
-        icon: 'menu-hub',
-        label: 'hubPage',
-        subMenu: [
-          {
-            to: '/hub/templates',
-            icon: 'hub-template',
-            label: 'templatesLabel',
-          },
-          {
-            to: '/hub/recipes',
-            icon: 'hub-recipe',
-            label: 'recipesLabel',
-          },
-        ],
-      },
-      isAdmin && {
-        to: '/proxies',
-        icon: 'proxy',
-        label: 'proxies',
-        extra: [
-          this._areProxiesOutOfDate() ? (
-            <Tooltip content={_('proxiesNeedUpgrade')}>
-              <StackedIcons
-                icons={[
-                  { color: 'text-success', icon: 'circle', size: 2 },
-                  { icon: 'menu-update', size: 1 },
-                ]}
-              />
-            </Tooltip>
-          ) : null,
-        ],
-      },
-      isAdmin && { to: '/about', icon: 'menu-about', label: 'aboutPage' },
       {
         to: '/tasks',
         icon: 'task',
         label: 'taskMenu',
         pill: nResolvedTasks,
       },
-      isAdmin && { to: '/xosan', icon: 'menu-xosan', label: 'xosan' },
       !noOperatablePools && {
         to: '/import/vm',
         icon: 'menu-new-import',
@@ -532,20 +547,24 @@ export default class Menu extends Component {
         <ul className='nav nav-sidebar nav-pills nav-stacked' ref='content'>
           <li>
             <span>
-              <a className={styles.brand} href='#'>
+              <a className={styles.brand} href='#' onClick={this._toggleCollapsed}>
+                {/* <a className='nav-link' onClick={this._toggleCollapsed} href='#'> */}
                 <span className={styles.hiddenUncollapsed}>XO</span>
+                {/* </a> */}
+                {/* <a className='nav-link' onClick={this._toggleCollapsed} href='#'> */}
                 <span className={styles.hiddenCollapsed}>Xen Orchestra</span>
+                {/* </a> */}
               </a>
             </span>
           </li>
-          <li>
+          {/* <li>
             <a className='nav-link' onClick={this._toggleCollapsed} href='#'>
               <Icon icon='menu-collapse' size='lg' fixedWidth />
             </a>
-          </li>
+          </li> */}
           {map(items, (item, index) => item && <MenuLinkItem key={index} item={item} />)}
-          <li>&nbsp;</li>
-          <li>&nbsp;</li>
+          {/* <li>&nbsp;</li> */}
+          {/* <li>&nbsp;</li> */}
           {!state.isXoaStatusOk && (
             <li className='nav-item xo-menu-item'>
               <Link className='nav-link' style={LINK_STYLE} to='/xoa/support'>
@@ -558,49 +577,51 @@ export default class Menu extends Component {
               </Link>
             </li>
           )}
-          {(isAdmin || +process.env.XOA_PLAN === 5) && (
+          {/* {(isAdmin || +process.env.XOA_PLAN === 5) && (
             <li className='nav-item xo-menu-item'>
               <Link className='nav-link' style={{ display: 'flex' }} to='/about'>
-                {+process.env.XOA_PLAN === 5 ? (
-                  <span>
-                    <span className={classNames(styles.hiddenCollapsed, 'text-warning')}>
-                      <Icon icon='alarm' size='lg' fixedWidth /> {_('noSupport')}
+                {
+                  +process.env.XOA_PLAN === 5 ? (
+                    <span>
+                      <span className={classNames(styles.hiddenCollapsed, 'text-warning')}>
+                        <Icon icon='alarm' size='lg' fixedWidth /> {_('noSupport')}
+                      </span>
+                      <span className={classNames(styles.hiddenUncollapsed, 'text-warning')}>
+                        <Icon icon='alarm' size='lg' fixedWidth />
+                      </span>
                     </span>
-                    <span className={classNames(styles.hiddenUncollapsed, 'text-warning')}>
-                      <Icon icon='alarm' size='lg' fixedWidth />
+                  ) : 
+                  +process.env.XOA_PLAN === 1 ? (
+                    <span>
+                      <span className={classNames(styles.hiddenCollapsed, 'text-warning')}>
+                        <Icon icon='info' size='lg' fixedWidth /> {_('freeUpgrade')}
+                      </span>
+                      <span className={classNames(styles.hiddenUncollapsed, 'text-warning')}>
+                        <Icon icon='info' size='lg' fixedWidth />
+                      </span>
                     </span>
-                  </span>
-                ) : +process.env.XOA_PLAN === 1 ? (
-                  <span>
-                    <span className={classNames(styles.hiddenCollapsed, 'text-warning')}>
-                      <Icon icon='info' size='lg' fixedWidth /> {_('freeUpgrade')}
+                  ) : (
+                    <span>
+                      <span className={classNames(styles.hiddenCollapsed, 'text-success')}>
+                        <Icon icon='info' size='lg' fixedWidth /> {getXoaPlan()}
+                      </span>
+                      <span className={classNames(styles.hiddenUncollapsed, 'text-success')}>
+                        <Icon icon='info' size='lg' fixedWidth />
+                      </span>
                     </span>
-                    <span className={classNames(styles.hiddenUncollapsed, 'text-warning')}>
-                      <Icon icon='info' size='lg' fixedWidth />
-                    </span>
-                  </span>
-                ) : (
-                  <span>
-                    <span className={classNames(styles.hiddenCollapsed, 'text-success')}>
-                      <Icon icon='info' size='lg' fixedWidth /> {getXoaPlan()}
-                    </span>
-                    <span className={classNames(styles.hiddenUncollapsed, 'text-success')}>
-                      <Icon icon='info' size='lg' fixedWidth />
-                    </span>
-                  </span>
-                )}
+                  )}
               </Link>
             </li>
-          )}
-          <li>&nbsp;</li>
-          <li>&nbsp;</li>
+          )} */}
+          {/* <li>&nbsp;</li> */}
+          {/* <li>&nbsp;</li> */}
           <li className='nav-item xo-menu-item'>
             <a className='nav-link' onClick={this._signOut} href='#'>
               <Icon icon='sign-out' size='lg' fixedWidth />
               <span className={styles.hiddenCollapsed}> {_('signOut')}</span>
             </a>
           </li>
-          <li className='nav-item xo-menu-item'>
+          {/* <li className='nav-item xo-menu-item'>
             <Link className='nav-link text-xs-center' to='/user'>
               <Tooltip
                 content={_('editUserProfile', {
@@ -610,9 +631,9 @@ export default class Menu extends Component {
                 <Icon icon='user' size='lg' />
               </Tooltip>
             </Link>
-          </li>
-          <li>&nbsp;</li>
-          <li>&nbsp;</li>
+          </li> */}
+          {/* <li>&nbsp;</li> */}
+          {/* <li>&nbsp;</li> */}
           {status === 'connecting' ? (
             <li className='nav-item text-xs-center'>{_('statusConnecting')}</li>
           ) : (
@@ -669,6 +690,27 @@ const SubMenu = props => {
               <Link activeClassName='active' className='nav-link' to={item.to}>
                 <Icon icon={`${item.icon}`} size='lg' fixedWidth /> {_(item.label)} {item.extra}
               </Link>
+              {item.subMenu && <MultiLevelSubMenu items={item.subMenu} />}
+            </li>
+          )
+      )}
+
+    </ul>
+  )
+}
+
+const MultiLevelSubMenu = props => {
+  return (
+    <ul className='nav nav-pills nav-stacked xo-sub-menu'>
+      {map(
+        props.items,
+        (item, index) =>
+          item && (
+            <li key={index} className='nav-item xo-menu-item'>
+              <Link activeClassName='active' className='nav-link' to={item.to}>
+                <Icon icon={`${item.icon}`} size='lg' fixedWidth /> {_(item.label)} {item.extra}
+              </Link>
+              {item.subMenu && <SubMenu items={item.subMenu} />}
             </li>
           )
       )}
