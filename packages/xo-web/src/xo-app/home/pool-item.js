@@ -141,7 +141,7 @@ export default class PoolItem extends Component {
                   <Text value={pool.name_label} onChange={this._setNameLabel} useLongClick />
                 </Ellipsis>
                 &nbsp;
-                <BulkIcons alerts={this._getAlerts()} />
+                {/* <BulkIcons alerts={this._getAlerts()} /> */}
                 &nbsp;
                 {missingPatchCount > 0 && (
                   <span>

@@ -503,10 +503,10 @@ const NoObjects = props =>
   const noResourceSets = cb => subscribeResourceSets(data => cb(isEmpty(data)))
   return isAdmin
     ? {
-        jobs: subscribeBackupNgJobs,
-        noResourceSets,
-        schedulesByJob: cb => subscribeSchedules(schedules => cb(groupBy(schedules, 'jobId'))),
-      }
+      jobs: subscribeBackupNgJobs,
+      noResourceSets,
+      schedulesByJob: cb => subscribeSchedules(schedules => cb(groupBy(schedules, 'jobId'))),
+    }
     : { noResourceSets }
 })
 export default class Home extends Component {
@@ -592,10 +592,10 @@ export default class Home extends Component {
     const defaultFilterName = get(() => preferences.defaultHomeFilters[type])
     return defined(
       defaultFilterName &&
-        defined(
-          () => homeFilters[type][defaultFilterName],
-          () => preferences.filters[type][defaultFilterName]
-        ),
+      defined(
+        () => homeFilters[type][defaultFilterName],
+        () => preferences.filters[type][defaultFilterName]
+      ),
       OPTIONS[type].defaultFilter
     )
   }
@@ -684,7 +684,7 @@ export default class Home extends Component {
     filter => {
       try {
         return ComplexMatcher.parse(filter)
-      } catch (_) {}
+      } catch (_) { }
     }
   )
 
@@ -784,10 +784,10 @@ export default class Home extends Component {
     this._setFilter(
       pools.length
         ? ComplexMatcher.setPropertyClause(
-            filter,
-            '$pool',
-            new ComplexMatcher.Or(map(pools, pool => new ComplexMatcher.String(pool.id)))
-          )
+          filter,
+          '$pool',
+          new ComplexMatcher.Or(map(pools, pool => new ComplexMatcher.String(pool.id)))
+        )
         : ComplexMatcher.setPropertyClause(filter, '$pool', undefined)
     )
   }
@@ -797,10 +797,10 @@ export default class Home extends Component {
     this._setFilter(
       hosts.length
         ? ComplexMatcher.setPropertyClause(
-            filter,
-            '$container',
-            new ComplexMatcher.Or(map(hosts, host => new ComplexMatcher.String(host.id)))
-          )
+          filter,
+          '$container',
+          new ComplexMatcher.Or(map(hosts, host => new ComplexMatcher.String(host.id)))
+        )
         : ComplexMatcher.setPropertyClause(filter, '$container', undefined)
     )
   }
@@ -810,10 +810,10 @@ export default class Home extends Component {
     this._setFilter(
       tags.length
         ? ComplexMatcher.setPropertyClause(
-            filter,
-            'tags',
-            new ComplexMatcher.Or(map(tags, tag => new ComplexMatcher.RegExp(`^${escapeRegExp(tag.id)}$`, 'i')))
-          )
+          filter,
+          'tags',
+          new ComplexMatcher.Or(map(tags, tag => new ComplexMatcher.RegExp(`^${escapeRegExp(tag.id)}$`, 'i')))
+        )
         : ComplexMatcher.setPropertyClause(filter, 'tags', undefined)
     )
   }
@@ -823,10 +823,10 @@ export default class Home extends Component {
     this._setFilter(
       resourceSets.length
         ? ComplexMatcher.setPropertyClause(
-            filter,
-            'resourceSet',
-            new ComplexMatcher.Or(map(resourceSets, set => new ComplexMatcher.String(set.id)))
-          )
+          filter,
+          'resourceSet',
+          new ComplexMatcher.Or(map(resourceSets, set => new ComplexMatcher.String(set.id)))
+        )
         : ComplexMatcher.setPropertyClause(filter, 'resourceSet', undefined)
     )
   }
@@ -1021,15 +1021,15 @@ export default class Home extends Component {
               <span className='text-muted'>
                 {this._getNumberOfSelectedItems()
                   ? _('homeSelectedItems', {
-                      icon: <Icon icon={type.toLowerCase()} />,
-                      selected: this._getNumberOfSelectedItems(),
-                      total: nItems,
-                    })
+                    icon: <Icon icon={type.toLowerCase()} />,
+                    selected: this._getNumberOfSelectedItems(),
+                    total: nItems,
+                  })
                   : _('homeDisplayedItems', {
-                      displayed: filteredItems.length,
-                      icon: <Icon icon={type.toLowerCase()} />,
-                      total: nItems,
-                    })}
+                    displayed: filteredItems.length,
+                    icon: <Icon icon={type.toLowerCase()} />,
+                    total: nItems,
+                  })}
               </span>
             </span>
           </Col>

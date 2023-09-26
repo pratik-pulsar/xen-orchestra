@@ -274,8 +274,8 @@ export default class Menu extends Component {
             icon: 'host',
             label: 'homeHostPage',
           },
-          // !isEmpty(pools) && {
-          true && {
+          !isEmpty(pools) && {
+            // true && {
             to: '/home?t=pool',
             icon: 'pool',
             label: 'homePoolPage',
