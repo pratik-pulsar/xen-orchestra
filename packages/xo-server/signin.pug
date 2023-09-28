@@ -7,11 +7,11 @@ html
     title Xen Orchestra
     meta(name = 'author' content = 'Vates SAS')
     link(rel = 'stylesheet' href = 'index.css')
-  body(style = 'display: flex; height: 100vh;')
-    div(style = 'margin: auto; width: 20em;')
-      div.mb-2(style = 'display: flex;')
-        img(src = 'assets/iospark-logo.png' style = 'margin: auto;')
-      h2.text-xs-center.mb-2 Xen Orchestra
+  body(style = 'display: flex; height: 100vh; background-image: url("https://rustytraveltrunk.com/wp-content/uploads/2020/05/Camino-Frances-day-21-1.jpg"); background-repeat: no-repeat; background-attachment: fixed; background-size: cover;')
+    div(style = 'margin: auto; display:flex; background-color: rgb(255,255,255,0.5); padding:20px ; border-radius: 10px;' )
+      div(style = 'display: flex;')
+        img(src = 'assets/iospark-logo.png' style = 'margin: auto; height:80%')
+      
       if error
         p.text-danger #{error}
       if otp
@@ -33,10 +33,10 @@ html
                 i.fa.fa-sign-in
                 |  Sign in
       else
-        div.mb-2
         each label, id in strategies
           div: a(href = 'signin/' + id).btn.btn-block.btn-primary.mb-1 Sign in with #{label}
-        form(action = 'signin/local' method = 'post')
+        form(action = 'signin/local' method = 'post' style='align-self:center')
+          h2.text-xs-center.mb-2 Xen Orchestra
           fieldset
             .input-group.mb-1
               span.input-group-addon
