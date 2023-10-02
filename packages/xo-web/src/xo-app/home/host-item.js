@@ -105,10 +105,10 @@ export default class HostItem extends Component {
     let level = 'warning'
     let message = 'hostNoSupport'
 
-    if (getXoaPlan() === SOURCES) {
-      message = 'poolSupportSourceUsers'
-      level = 'warning'
-    }
+    // if (getXoaPlan() === SOURCES) {
+    //   message = 'poolSupportSourceUsers'
+    //   level = 'warning'
+    // }
 
     if (supportLevel === 'total') {
       message = 'hostSupportEnabled'
