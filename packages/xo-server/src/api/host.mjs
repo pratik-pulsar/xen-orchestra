@@ -1,6 +1,7 @@
 import { createLogger } from '@xen-orchestra/log'
 import assert from 'assert'
 import { format } from 'json-rpc-peer'
+import { incorrectState } from 'xo-common/api-errors.js'
 
 import backupGuard from './_backupGuard.mjs'
 
@@ -119,7 +120,15 @@ set.resolve = {
 
 // FIXME: set force to false per default when correctly implemented in
 // UI.
-export async function restart({ bypassBackupCheck = false, host, force = true, suspendResidentVms }) {
+export async function restart({
+  bypassBackupCheck = false,
+  host,
+  force = false,
+  suspendResidentVms,
+
+  bypassBlockedSuspend = force,
+  bypassCurrentVmCheck = force,
+}) {
   if (bypassBackupCheck) {
     log.warn('host.restart with argument "bypassBackupCheck" set to true', { hostId: host.id })
   } else {
@@ -127,13 +136,23 @@ export async function restart({ bypassBackupCheck = false, host, force = true, s
   }
 
   const xapi = this.getXapi(host)
-  return suspendResidentVms ? xapi.host_smartReboot(host._xapiRef) : xapi.rebootHost(host._xapiId, force)
+  return suspendResidentVms
+    ? xapi.host_smartReboot(host._xapiRef, bypassBlockedSuspend, bypassCurrentVmCheck)
+    : xapi.rebootHost(host._xapiId, force)
 }
 
 restart.description = 'restart the host'
 
 restart.params = {
   bypassBackupCheck: {
+    type: 'boolean',
+    optional: true,
+  },
+  bypassBlockedSuspend: {
+    type: 'boolean',
+    optional: true,
+  },
+  bypassCurrentVmCheck: {
     type: 'boolean',
     optional: true,
   },
@@ -454,5 +473,75 @@ setControlDomainMemory.params = {
 }
 
 setControlDomainMemory.resolve = {
+  host: ['id', 'host', 'administrate'],
+}
+
+// -------------------------------------------------------------------
+/**
+ *
+ * @param {{host:HOST}} params
+ * @returns null if plugin is not installed or don't have the method
+ *          an object device: status on success
+ */
+export function getSmartctlHealth({ host }) {
+  return this.getXapi(host).getSmartctlHealth(host._xapiId)
+}
+
+getSmartctlHealth.description = 'get smartctl health status'
+
+getSmartctlHealth.params = {
+  id: { type: 'string' },
+}
+
+getSmartctlHealth.resolve = {
+  host: ['id', 'host', 'view'],
+}
+
+/**
+ *
+ * @param {{host:HOST}} params
+ * @returns null if plugin is not installed or don't have the method
+ *          an object device: full device information on success
+ */
+export function getSmartctlInformation({ host, deviceNames }) {
+  return this.getXapi(host).getSmartctlInformation(host._xapiId, deviceNames)
+}
+
+getSmartctlInformation.description = 'get smartctl information'
+
+getSmartctlInformation.params = {
+  id: { type: 'string' },
+
+  deviceNames: {
+    type: 'array',
+    items: {
+      type: 'string',
+    },
+    optional: true,
+  },
+}
+
+getSmartctlInformation.resolve = {
+  host: ['id', 'host', 'view'],
+}
+
+export async function getBlockdevices({ host }) {
+  const xapi = this.getXapi(host)
+  if (host.productBrand !== 'XCP-ng') {
+    throw incorrectState({
+      actual: host.productBrand,
+      expected: 'XCP-ng',
+      object: host.id,
+      property: 'productBrand',
+    })
+  }
+  return JSON.parse(await xapi.call('host.call_plugin', host._xapiRef, 'lsblk.py', 'list_block_devices', {}))
+}
+
+getBlockdevices.params = {
+  id: { type: 'string' },
+}
+
+getBlockdevices.resolve = {
   host: ['id', 'host', 'administrate'],
 }

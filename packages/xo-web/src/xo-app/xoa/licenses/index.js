@@ -18,7 +18,7 @@ import { get } from '@xen-orchestra/defined'
 import { getLicenses, selfBindLicense, subscribePlugins, subscribeProxies, subscribeSelfLicenses } from 'xo'
 
 import Proxies from './proxies'
-import Xosan from './xosan'
+import Xostor from './xostor'
 
 // -----------------------------------------------------------------------------
 
@@ -128,6 +128,22 @@ const LicenseManager = ({ item, userData }) => {
     }
   }
 
+  if (type === 'xostor') {
+    const { srId } = item
+
+    if (srId === undefined) {
+      return _('licenseNotBoundXostor')
+    }
+
+    const sr = userData.xostorSrs[srId]
+    return (
+      <span>
+        {sr === undefined ? _('licenseBoundUnknownXostor') : <Link to={`srs/${sr.id}`}>{renderXoItem(sr)}</Link>}{' '}
+        <CopyToClipboardButton value={srId} />
+      </span>
+    )
+  }
+
   console.warn('encountered unsupported license type')
   return null
 }
@@ -174,11 +190,15 @@ const PRODUCTS_COLUMNS = [
 // -----------------------------------------------------------------------------
 
 @adminOnly
-@connectStore({
-  xosanSrs: createGetObjectsOfType('SR').filter([
-    ({ SR_type }) => SR_type === 'xosan', // eslint-disable-line camelcase
-  ]),
-  xoaRegistration: state => state.xoaRegisterState,
+@connectStore(() => {
+  const getSrs = createGetObjectsOfType('SR')
+  return {
+    xosanSrs: getSrs.filter([
+      ({ SR_type }) => SR_type === 'xosan', // eslint-disable-line camelcase
+    ]),
+    xoaRegistration: state => state.xoaRegisterState,
+    xostorSrs: getSrs.filter([({ SR_type }) => SR_type === 'linstor']),
+  }
 })
 @addSubscriptions(() => ({
   plugins: subscribePlugins,
@@ -196,7 +216,7 @@ export default class Licenses extends Component {
 
     return getLicenses()
       .then(licenses => {
-        const { proxy, xcpng, xoa, xosan } = groupBy(licenses, license => {
+        const { proxy, xcpng, xoa, xosan, xostor } = groupBy(licenses, license => {
           for (const productType of license.productTypes) {
             if (productType === 'xo') {
               return 'xoa'
@@ -210,6 +230,9 @@ export default class Licenses extends Component {
             if (productType === 'xcpng') {
               return 'xcpng'
             }
+            if (productType === 'xostor') {
+              return 'xostor'
+            }
           }
           return 'other'
         })
@@ -219,6 +242,7 @@ export default class Licenses extends Component {
             xcpng,
             xoa,
             xosan,
+            xostor,
           },
         })
       })
@@ -300,6 +324,21 @@ export default class Licenses extends Component {
         }
       })
 
+      // --- XOSTOR ---
+      forEach(licenses.xostor, license => {
+        // When `expires` is undefined, the license isn't expired
+        if (!(license.expires < now)) {
+          products.push({
+            buyer: license.buyer,
+            expires: license.expires,
+            id: license.id,
+            product: 'XOSTOR',
+            type: 'xostor',
+            srId: license.boundObjectId,
+          })
+        }
+      })
+
       return products
     }
   )
@@ -344,7 +383,7 @@ export default class Licenses extends Component {
       return <em>{_('statusLoading')}</em>
     }
 
-    const { xoaRegistration, selfLicenses, xosanSrs } = this.props
+    const { xoaRegistration, selfLicenses, xosanSrs, xostorSrs } = this.props
 
     return (
       <Container>
@@ -371,24 +410,15 @@ export default class Licenses extends Component {
               data-registeredEmail={xoaRegistration.email}
               data-selfLicenses={selfLicenses}
               data-xosanSrs={xosanSrs}
+              data-xostorSrs={xostorSrs}
               stateUrlParam='s'
             />
           </Col>
         </Row>
         <Row>
           <Col>
-            <h2>
-              XOSAN
-              <a
-                className='btn btn-secondary ml-1'
-                href='https://xen-orchestra.com/#!/xosan-home'
-                target='_blank'
-                rel='noopener noreferrer'
-              >
-                <Icon icon='bug' /> {_('productSupport')}
-              </a>
-            </h2>
-            <Xosan xosanLicenses={this.state.licenses.xosan} updateLicenses={this._updateLicenses} />
+            <h2>{_('xostor')}</h2>
+            <Xostor xostorLicenses={this.state.licenses.xostor} updateLicenses={this._updateLicenses} />
           </Col>
         </Row>
         <Row>

@@ -6,6 +6,7 @@ import some from 'lodash/some.js'
 import ensureArray from '../_ensureArray.mjs'
 import { asInteger } from '../xapi/utils.mjs'
 import { debounceWithKey } from '../_pDebounceWithKey.mjs'
+import { destroy as destroyXostor } from './xostor.mjs'
 import { forEach, parseXml } from '../utils.mjs'
 
 // ===================================================================
@@ -56,6 +57,10 @@ const srIsBackingHa = sr => sr.$pool.ha_enabled && some(sr.$pool.$ha_statefiles,
 // TODO: find a way to call this "delete" and not destroy
 export async function destroy({ sr }) {
   const xapi = this.getXapi(sr)
+  if (sr.SR_type === 'linstor') {
+    await destroyXostor.call(this, { sr })
+    return
+  }
   if (sr.SR_type !== 'xosan') {
     await xapi.destroySr(sr._xapiId)
     return
@@ -884,6 +889,8 @@ export const getAllUnhealthyVdiChainsLength = debounceWithKey(function getAllUnh
   return unhealthyVdiChainsLengthBySr
 }, 60e3)
 
+getAllUnhealthyVdiChainsLength.permission = 'admin'
+
 // -------------------------------------------------------------------
 
 export function getVdiChainsInfo({ sr }) {
@@ -950,5 +957,21 @@ disableMaintenanceMode.params = {
 disableMaintenanceMode.permission = 'admin'
 
 disableMaintenanceMode.resolve = {
+  sr: ['id', 'SR', 'operate'],
+}
+
+// -------------------------------------------------------------------
+
+export async function reclaimSpace({ sr }) {
+  await this.getXapiObject(sr).$reclaimSpace()
+}
+
+reclaimSpace.description = 'reclaim freed space on SR'
+
+reclaimSpace.params = {
+  id: { type: 'string' },
+}
+
+reclaimSpace.resolve = {
   sr: ['id', 'SR', 'operate'],
 }

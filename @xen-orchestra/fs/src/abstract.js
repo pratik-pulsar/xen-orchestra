@@ -189,7 +189,7 @@ export default class RemoteHandlerAbstract {
    * @param {number} [options.dirMode]
    * @param {(this: RemoteHandlerAbstract, path: string) => Promise<undefined>} [options.validator] Function that will be called before the data is commited to the remote, if it fails, file should not exist
    */
-  async outputStream(path, input, { checksum = true, dirMode, validator } = {}) {
+  async outputStream(path, input, { checksum = true, dirMode, maxStreamLength, streamLength, validator } = {}) {
     path = normalizePath(path)
     let checksumStream
 
@@ -201,6 +201,8 @@ export default class RemoteHandlerAbstract {
     }
     await this._outputStream(path, input, {
       dirMode,
+      maxStreamLength,
+      streamLength,
       validator,
     })
     if (checksum) {
@@ -624,14 +626,18 @@ export default class RemoteHandlerAbstract {
 
     const files = await this._list(dir)
     await asyncEach(files, file =>
-      this._unlink(`${dir}/${file}`).catch(error => {
-        // Unlink dir behavior is not consistent across platforms
-        // https://github.com/nodejs/node-v0.x-archive/issues/5791
-        if (error.code === 'EISDIR' || error.code === 'EPERM') {
-          return this._rmtree(`${dir}/${file}`)
-        }
-        throw error
-      })
+      this._unlink(`${dir}/${file}`).catch(
+        error => {
+          // Unlink dir behavior is not consistent across platforms
+          // https://github.com/nodejs/node-v0.x-archive/issues/5791
+          if (error.code === 'EISDIR' || error.code === 'EPERM') {
+            return this._rmtree(`${dir}/${file}`)
+          }
+          throw error
+        },
+        // real unlink concurrency will be 2**max directory depth
+        { concurrency: 2 }
+      )
     )
     return this._rmtree(dir)
   }

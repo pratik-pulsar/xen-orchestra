@@ -118,6 +118,7 @@ const TRANSFORMS = {
       },
       suspendSr: link(obj, 'suspend_image_SR'),
       zstdSupported: obj.restrictions.restrict_zstd_export === 'false',
+      vtpmSupported: obj.restrictions.restrict_vtpm === 'false',
 
       // TODO
       // - ? networks = networksByPool.items[pool.id] (network.$pool.id)
@@ -413,6 +414,7 @@ const TRANSFORMS = {
       suspendSr: link(obj, 'suspend_SR'),
       tags: obj.tags,
       VIFs: link(obj, 'VIFs'),
+      VTPMs: link(obj, 'VTPMs'),
       virtualizationMode: domainType,
 
       // deprecated, use pvDriversVersion instead
@@ -509,7 +511,8 @@ const TRANSFORMS = {
       // TODO: Should it replace usage?
       physical_usage: +obj.physical_utilisation,
 
-      allocationStrategy: ALLOCATION_BY_TYPE[srType],
+      allocationStrategy:
+        srType === 'linstor' ? obj.$PBDs[0]?.device_config.provisioning ?? 'unknown' : ALLOCATION_BY_TYPE[srType],
       current_operations: obj.current_operations,
       inMaintenanceMode: obj.other_config['xo:maintenanceState'] !== undefined,
       name_description: obj.name_description,
@@ -591,6 +594,7 @@ const TRANSFORMS = {
       usage: +obj.physical_utilisation,
       VDI_type: obj.type,
       current_operations: obj.current_operations,
+      other_config: obj.other_config,
 
       $SR: link(obj, 'SR'),
       $VBDs: link(obj, 'VBDs'),
@@ -693,6 +697,10 @@ const TRANSFORMS = {
   // -----------------------------------------------------------------
 
   task(obj) {
+    let applies_to
+    if (obj.other_config.applies_to) {
+      applies_to = obj.$xapi.getObject(obj.other_config.applies_to, undefined).uuid
+    }
     return {
       allowedOperations: obj.allowed_operations,
       created: toTimestamp(obj.created),
@@ -704,7 +712,7 @@ const TRANSFORMS = {
       result: obj.result,
       status: obj.status,
       xapiRef: obj.$ref,
-
+      applies_to,
       $host: link(obj, 'resident_on'),
     }
   },
@@ -839,6 +847,14 @@ const TRANSFORMS = {
       pgpus: link(obj, 'enabled_on_PGPUs'),
       vendorName: obj.vendor_name,
       vgpus: link(obj, 'VGPUs'),
+    }
+  },
+
+  vtpm(obj) {
+    return {
+      type: 'VTPM',
+
+      vm: link(obj, 'VM'),
     }
   },
 }

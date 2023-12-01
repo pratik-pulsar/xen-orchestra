@@ -282,22 +282,21 @@ const AttachedVdisTable = decorate([
     vdiSnapshots: createGetObjectsOfType('VDI-snapshot'),
   }),
   ({ columns, rowTransform }) =>
-    ({ pools, srs, vbds, vdis, vdiSnapshots }) =>
-      (
-        <NoObjects
-          actions={CONTROL_DOMAIN_VDIS_ACTIONS}
-          collection={vbds}
-          columns={columns}
-          component={SortedTable}
-          data-pools={pools}
-          data-srs={srs}
-          data-vdis={vdis}
-          data-vdiSnapshots={vdiSnapshots}
-          emptyMessage={_('noControlDomainVdis')}
-          rowTransform={rowTransform}
-          stateUrlParam='s_controldomain'
-        />
-      ),
+    ({ pools, srs, vbds, vdis, vdiSnapshots }) => (
+      <NoObjects
+        actions={CONTROL_DOMAIN_VDIS_ACTIONS}
+        collection={vbds}
+        columns={columns}
+        component={SortedTable}
+        data-pools={pools}
+        data-srs={srs}
+        data-vdis={vdis}
+        data-vdiSnapshots={vdiSnapshots}
+        emptyMessage={_('noControlDomainVdis')}
+        rowTransform={rowTransform}
+        stateUrlParam='s_controldomain'
+      />
+    ),
   {
     columns: [
       {
@@ -526,7 +525,11 @@ const HANDLED_VDI_TYPES = new Set(['system', 'user', 'ephemeral'])
         Object.assign({}, vdis, snapshotVdis)
       ),
       createSelector(getSrs, srs => vdi => {
-        if (vdi.$VBDs.length !== 0 || !HANDLED_VDI_TYPES.has(vdi.VDI_type)) {
+        if (
+          vdi.$VBDs.length !== 0 || // vdi with a vbd aren't orphans
+          !HANDLED_VDI_TYPES.has(vdi.VDI_type) || // only for vdi with handled types
+          vdi.size === 0 // empty vdi aren't considered as orphans
+        ) {
           return false
         }
 

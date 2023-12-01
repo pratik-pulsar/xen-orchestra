@@ -7,19 +7,13 @@ import { parseDuration } from '@vates/parse-duration'
 import patch from '../patch.mjs'
 import { Tokens } from '../models/token.mjs'
 import { forEach, generateToken } from '../utils.mjs'
+import { replace } from '../sensitive-values.mjs'
 
 // ===================================================================
 
 const log = createLogger('xo:authentification')
 
 const noSuchAuthenticationToken = id => noSuchObject(id, 'authenticationToken')
-
-const unserialize = token => {
-  if (token.created_at !== undefined) {
-    token.created_at = +token.created_at
-  }
-  token.expiration = +token.expiration
-}
 
 export default class {
   constructor(app) {
@@ -85,7 +79,7 @@ export default class {
       const tokensDb = (this._tokens = new Tokens({
         connection: app._redis,
         namespace: 'token',
-        indexes: ['user_id'],
+        indexes: ['client_id', 'user_id'],
       }))
 
       app.addConfigManager(
@@ -136,53 +130,88 @@ export default class {
   }
 
   async authenticateUser(credentials, userData) {
-    // don't even attempt to authenticate with empty password
-    const { password } = credentials
-    if (password === '') {
-      throw new Error('empty password')
-    }
+    const { tasks } = this._app
+    const task = await tasks.create(
+      {
+        type: 'xo:authentication:authenticateUser',
+        name: 'XO user authentication',
+        credentials: replace(credentials),
+        userData,
+      },
+      {
+        // only keep trace of failed attempts
+        clearLogOnSuccess: true,
+      }
+    )
 
-    // TODO: remove when email has been replaced by username.
-    if (credentials.email) {
-      credentials.username = credentials.email
-    } else if (credentials.username) {
-      credentials.email = credentials.username
-    }
+    return task.run(async () => {
+      // don't even attempt to authenticate with empty password
+      const { password } = credentials
+      if (password === '') {
+        throw new Error('empty password')
+      }
 
-    const failures = this._failures
+      // TODO: remove when email has been replaced by username.
+      if (credentials.email) {
+        credentials.username = credentials.email
+      } else if (credentials.username) {
+        credentials.email = credentials.username
+      }
 
-    const { username } = credentials
-    const now = Date.now()
-    let lastFailure
-    if (username && (lastFailure = failures[username]) && lastFailure + this._throttlingDelay > now) {
-      throw new Error('too fast authentication tries')
-    }
+      const failures = this._failures
 
-    const result = await this._authenticateUser(credentials, userData)
-    if (result === undefined) {
-      failures[username] = now
-      throw invalidCredentials()
-    }
+      const { username } = credentials
+      const now = Date.now()
+      let lastFailure
+      if (username && (lastFailure = failures[username]) && lastFailure + this._throttlingDelay > now) {
+        throw new Error('too fast authentication tries')
+      }
 
-    delete failures[username]
-    return result
+      const result = await this._authenticateUser(credentials, userData)
+      if (result === undefined) {
+        failures[username] = now
+        throw invalidCredentials()
+      }
+
+      delete failures[username]
+      return result
+    })
   }
 
   // -----------------------------------------------------------------
 
-  async createAuthenticationToken({ description, expiresIn, userId }) {
+  async createAuthenticationToken({ client, description, expiresIn, userId }) {
     let duration = this._defaultTokenValidity
     if (expiresIn !== undefined) {
       duration = parseDuration(expiresIn)
-      if (duration <= 60e3) {
+      if (duration < 60e3) {
         throw new Error('invalid expiresIn duration: ' + expiresIn)
       } else if (duration > this._maxTokenValidity) {
         throw new Error('too high expiresIn duration: ' + expiresIn)
       }
     }
 
+    const tokens = this._tokens
     const now = Date.now()
+
+    const clientId = client?.id
+    if (clientId !== undefined) {
+      const token = await tokens.first({ client_id: clientId, user_id: userId })
+      if (token !== undefined) {
+        if (token.expiration > now) {
+          token.description = description
+          token.expiration = now + duration
+          tokens.update(token)::ignoreErrors()
+
+          return token
+        }
+
+        tokens.remove(token.id)::ignoreErrors()
+      }
+    }
+
     const token = {
+      client,
       created_at: now,
       description,
       id: await generateToken(),
@@ -217,8 +246,6 @@ export default class {
   async _getAuthenticationToken(id, properties) {
     const token = await this._tokens.first(properties ?? id)
     if (token !== undefined) {
-      unserialize(token)
-
       if (token.expiration > Date.now()) {
         return token
       }
@@ -244,8 +271,6 @@ export default class {
     const tokensDb = this._tokens
     const toRemove = []
     for (const token of await tokensDb.get({ user_id: userId })) {
-      unserialize(token)
-
       const { expiration } = token
       if (expiration < now) {
         toRemove.push(token.id)

@@ -1,4 +1,5 @@
 import { asyncEach } from '@vates/async-each'
+import { createGzip } from 'node:zlib'
 import { every } from '@vates/predicates'
 import { ifDef } from '@xen-orchestra/defined'
 import { featureUnauthorized, invalidCredentials, noSuchObject } from 'xo-common/api-errors.js'
@@ -9,8 +10,29 @@ import pick from 'lodash/pick.js'
 import * as CM from 'complex-matcher'
 import { VDI_FORMAT_RAW, VDI_FORMAT_VHD } from '@xen-orchestra/xapi'
 
+import { getUserPublicProperties } from '../utils.mjs'
+
 const { join } = path.posix
 const noop = Function.prototype
+
+function compressMaybe(req, res) {
+  let transform
+
+  const acceptEncoding = req.headers['accept-encoding']
+  if (
+    acceptEncoding !== undefined &&
+    acceptEncoding.split(',').some(_ => _.split(';')[0].trim().toLocaleLowerCase() === 'gzip')
+  ) {
+    res.setHeader('content-encoding', 'gzip')
+    transform = createGzip()
+  }
+
+  if (transform !== undefined) {
+    pipeline(transform, res).catch(noop)
+    return transform
+  }
+  return res
+}
 
 async function* makeObjectsStream(iterable, makeResult, json) {
   // use Object.values() on non-iterable objects
@@ -156,9 +178,24 @@ export default class RestApi {
     collections.backups = { id: 'backups' }
     collections.restore = { id: 'restore' }
     collections.tasks = { id: 'tasks' }
+    collections.users = { id: 'users' }
 
     collections.hosts.routes = {
       __proto__: null,
+
+      async 'audit.txt'(req, res) {
+        const host = req.xapiObject
+
+        res.setHeader('content-type', 'text/plain')
+        await pipeline(await host.$xapi.getResource('/audit_log', { host }), compressMaybe(req, res))
+      },
+
+      async 'logs.tar'(req, res) {
+        const host = req.xapiObject
+
+        res.setHeader('content-type', 'application/x-tar')
+        await pipeline(await host.$xapi.getResource('/host_logs_download', { host }), compressMaybe(req, res))
+      },
 
       async missing_patches(req, res) {
         await app.checkFeatureAuthorization('LIST_MISSING_PATCHES')
@@ -355,6 +392,30 @@ export default class RestApi {
         }, true)
       )
 
+    api
+      .get(
+        '/users',
+        wrap(async (req, res) => {
+          let users = await app.getAllUsers()
+
+          const { filter, limit } = req.query
+          if (filter !== undefined) {
+            users = users.filter(CM.parse(filter).createPredicate())
+          }
+          if (limit < users.length) {
+            users.length = limit
+          }
+
+          sendObjects(users.map(getUserPublicProperties), req, res)
+        })
+      )
+      .get(
+        '/users/:id',
+        wrap(async (req, res) => {
+          res.json(getUserPublicProperties(await app.getUser(req.params.id)))
+        })
+      )
+
     api.get(
       '/:collection',
       wrap(async (req, res) => {
@@ -392,6 +453,15 @@ export default class RestApi {
         await pipeline(stream, res)
       })
     )
+    api.put(
+      '/:collection(vdis|vdi-snapshots)/:object.:format(vhd|raw)',
+      wrap(async (req, res) => {
+        req.length = +req.headers['content-length']
+        await req.xapiObject.$importContent(req, { format: req.params.format })
+
+        res.sendStatus(204)
+      })
+    )
     api.get(
       '/:collection(vms|vm-snapshots|vm-templates)/:object.xva',
       wrap(async (req, res) => {
@@ -412,30 +482,49 @@ export default class RestApi {
       if (routes !== undefined) {
         result = { ...result }
         for (const route of Object.keys(routes)) {
-          result[route + '_href'] = join(req.baseUrl, req.path, route)
+          result[route.split('.')[0] + '_href'] = join(req.baseUrl, req.path, route)
         }
       }
 
       res.json(result)
     })
-    api.patch(
-      '/:collection/:object',
-      json(),
-      wrap(async (req, res) => {
-        const obj = req.xapiObject
+    api
+      .patch(
+        '/:collection/:object',
+        json(),
+        wrap(async (req, res) => {
+          const obj = req.xapiObject
 
-        const promises = []
-        const { body } = req
-        for (const key of ['name_description', 'name_label']) {
-          const value = body[key]
-          if (value !== undefined) {
-            promises.push(obj['set_' + key](value))
+          const promises = []
+          const { body } = req
+
+          for (const key of ['name_description', 'name_label', 'tags']) {
+            const value = body[key]
+            if (value !== undefined) {
+              promises.push(obj['set_' + key](value))
+            }
           }
-        }
-        await promises
-        res.sendStatus(204)
-      })
-    )
+
+          await promises
+          res.sendStatus(204)
+        })
+      )
+      .delete(
+        '/:collection/:object/tags/:tag',
+        wrap(async (req, res) => {
+          await req.xapiObject.$call('remove_tags', req.params.tag)
+
+          res.sendStatus(204)
+        })
+      )
+      .put(
+        '/:collection/:object/tags/:tag',
+        wrap(async (req, res) => {
+          await req.xapiObject.$call('add_tags', req.params.tag)
+
+          res.sendStatus(204)
+        })
+      )
 
     api.get(
       '/:collection/:object/tasks',
@@ -484,6 +573,22 @@ export default class RestApi {
           return handler(req, res, next)
         }
         return next()
+      })
+    )
+
+    api.post(
+      '/:collection(pools)/:object/vms',
+      wrap(async (req, res) => {
+        let srRef
+        const { sr } = req.params
+        if (sr !== undefined) {
+          srRef = app.getXapiObject(sr, 'SR').$ref
+        }
+
+        const { $xapi } = req.xapiObject
+        const ref = await $xapi.VM_import(req, srRef)
+
+        res.end(await $xapi.getField('VM', ref, 'uuid'))
       })
     )
 
