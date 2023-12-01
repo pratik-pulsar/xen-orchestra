@@ -466,6 +466,11 @@ export default class Menu extends Component {
                 ],
               },
               isAdmin && { to: '/xosan', icon: 'menu-xosan', label: 'xosan' },
+              isAdmin && {
+                to: '/xostor',
+                label: 'xostor',
+                icon: 'menu-xostor',
+              },
             ],
           },
         ],
@@ -493,11 +498,6 @@ export default class Menu extends Component {
         icon: 'task',
         label: 'taskMenu',
         pill: nResolvedTasks,
-      },
-      isAdmin && {
-        to: '/xostor',
-        label: 'xostor',
-        icon: 'menu-xostor',
       },
       !noOperatablePools && {
         to: '/import/vm',
