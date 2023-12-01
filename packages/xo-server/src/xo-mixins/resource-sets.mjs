@@ -196,9 +196,7 @@ export default class {
       await Promise.all(
         difference(set.subjects, subjects).map(async subjectId =>
           Promise.all(
-            (
-              await this._app.getAclsForSubject(subjectId)
-            ).map(async acl => {
+            (await this._app.getAclsForSubject(subjectId)).map(async acl => {
               try {
                 const object = this._app.getObject(acl.object)
                 if ((object.type === 'VM' || object.type === 'VM-snapshot') && object.resourceSet === id) {
@@ -410,6 +408,11 @@ export default class {
     await Promise.all(mapToArray(sets, set => this._save(set)))
   }
 
+  /**
+   * Change or remove (if null) the resource set a VM belongs to
+   *
+   * The VM is also automatically shared in the new resource set.
+   */
   @decorateWith(deferrable)
   async setVmResourceSet($defer, vmId, resourceSetId, force = false) {
     const xapi = this._app.getXapi(vmId)
@@ -440,6 +443,9 @@ export default class {
       await this._app.removeAclsForObject(vmId)
     }
     if (resourceSetId != null) {
+      // ensure the object VM is up-to-date
+      await xapi.barrier(xapi.getObject(vmId).$ref)
+
       await this.shareVmResourceSet(vmId)
     }
   }

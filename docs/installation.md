@@ -82,13 +82,13 @@ As you may have seen in other parts of the documentation, XO is composed of two 
 
 #### NodeJS
 
-XO needs Node.js. **Please always use latest Node LTS**.
+XO requires Node.js 18.
 
 We'll consider at this point that you've got a working node on your box. E.g:
 
 ```console
 $ node -v
-v16.14.0
+v18.18.0
 ```
 
 If not, see [this page](https://nodejs.org/en/download/package-manager/) for instructions on how to install Node.
@@ -106,13 +106,28 @@ XO needs the following packages to be installed. Redis is used as a database by 
 For example, on Debian/Ubuntu:
 
 ```sh
-apt-get install build-essential redis-server libpng-dev git python3-minimal libvhdi-utils lvm2 cifs-utils
+apt-get install build-essential redis-server libpng-dev git python3-minimal libvhdi-utils lvm2 cifs-utils nfs-common
 ```
 
 On Fedora/CentOS like:
 
 ```sh
-dnf install redis libpng-devel git libvhdi-utils lvm2 cifs-utils make automake gcc gcc-c++
+dnf install redis libpng-devel git libvhdi-tools lvm2 cifs-utils make automake gcc gcc-c++
+```
+
+### Make sure Redis is running
+
+Start the service:
+
+```sh
+systemctl restart redis.service
+```
+
+Ensure it's working:
+
+```console
+$ redis-cli ping
+PONG
 ```
 
 ### Fetching the Code

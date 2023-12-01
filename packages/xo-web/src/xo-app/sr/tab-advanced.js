@@ -9,8 +9,8 @@ import { Container, Row, Col } from 'grid'
 import { CustomFields } from 'custom-fields'
 import { createGetObjectsOfType } from 'selectors'
 import { createSelector } from 'reselect'
-import { createSrUnhealthyVdiChainsLengthSubscription, deleteSr, toggleSrMaintenanceMode } from 'xo'
-import { flowRight, isEmpty, keys, sum, values } from 'lodash'
+import { createSrUnhealthyVdiChainsLengthSubscription, deleteSr, reclaimSrSpace, toggleSrMaintenanceMode } from 'xo'
+import { flowRight, isEmpty, keys } from 'lodash'
 
 // ===================================================================
 
@@ -44,11 +44,11 @@ const UnhealthyVdiChains = flowRight(
   connectStore(() => ({
     vdis: createGetObjectsOfType('VDI').pick(createSelector((_, props) => props.chains?.unhealthyVdis, keys)),
   }))
-)(({ chains: { unhealthyVdis } = {}, vdis }) =>
+)(({ chains: { nUnhealthyVdis, unhealthyVdis } = {}, vdis }) =>
   isEmpty(vdis) ? null : (
     <div>
       <hr />
-      <h3>{_('srUnhealthyVdiTitle', { total: sum(values(unhealthyVdis)) })}</h3>
+      <h3>{_('srUnhealthyVdiTitle', { total: nUnhealthyVdis })}</h3>
       <SortedTable collection={vdis} columns={COLUMNS} stateUrlParam='s_unhealthy_vdis' userData={unhealthyVdis} />
     </div>
   )
@@ -58,7 +58,13 @@ export default ({ sr }) => (
   <Container>
     <Row>
       <Col className='text-xs-right'>
-        <TabButton btnStyle='danger' handler={deleteSr} handlerParam={sr} icon='sr-remove' labelId='srRemoveButton' />
+        <TabButton
+          btnStyle='primary'
+          handler={reclaimSrSpace}
+          handlerParam={sr}
+          icon='sr-reclaim-space'
+          labelId='srReclaimSpace'
+        />
         {sr.inMaintenanceMode ? (
           <TabButton
             btnStyle='warning'
@@ -76,6 +82,7 @@ export default ({ sr }) => (
             labelId='enableMaintenanceMode'
           />
         )}
+        <TabButton btnStyle='danger' handler={deleteSr} handlerParam={sr} icon='sr-remove' labelId='srRemoveButton' />
       </Col>
     </Row>
     <Row>

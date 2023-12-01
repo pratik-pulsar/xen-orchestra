@@ -21,3 +21,22 @@ export interface XenApiAlarm<RelationType extends RawObjectType>
   triggerLevel: number;
   type: XenApiAlarmType;
 }
+
+export type XenApiPatch = {
+  $id: string;
+  name: string;
+  description: string;
+  license: string;
+  release: string;
+  size: number;
+  url: string;
+  version: string;
+  changelog:
+    | null
+    | undefined
+    | {
+        date: number;
+        description: string;
+        author: string;
+      };
+};

@@ -12,6 +12,7 @@ import mixin from '@xen-orchestra/mixin/legacy.js'
 import ms from 'ms'
 import noop from 'lodash/noop.js'
 import once from 'lodash/once.js'
+import pick from 'lodash/pick.js'
 import tarStream from 'tar-stream'
 import uniq from 'lodash/uniq.js'
 import { asyncMap } from '@xen-orchestra/async-map'
@@ -65,6 +66,7 @@ export default class Xapi extends XapiBase {
     maxUncoalescedVdis,
     restartHostTimeout,
     vdiExportConcurrency,
+    vmEvacuationConcurrency,
     vmExportConcurrency,
     vmMigrationConcurrency = 3,
     vmSnapshotConcurrency,
@@ -75,6 +77,7 @@ export default class Xapi extends XapiBase {
     this._guessVhdSizeOnImport = guessVhdSizeOnImport
     this._maxUncoalescedVdis = maxUncoalescedVdis
     this._restartHostTimeout = parseDuration(restartHostTimeout)
+    this._vmEvacuationConcurrency = vmEvacuationConcurrency
 
     //  close event is emitted when the export is canceled via browser. See https://github.com/vatesfr/xen-orchestra/issues/5535
     const waitStreamEnd = async stream => fromEvents(await stream, ['end', 'close'])
@@ -191,22 +194,36 @@ export default class Xapi extends XapiBase {
         return network.$ref
       }
     })(pool.other_config['xo:migrationNetwork'])
-    try {
-      try {
-        await (migrationNetworkRef === undefined
-          ? this.callAsync('host.evacuate', hostRef)
-          : this.callAsync('host.evacuate', hostRef, migrationNetworkRef))
-      } catch (error) {
-        if (error.code === 'MESSAGE_PARAMETER_COUNT_MISMATCH') {
-          log.warn(
-            'host.evacuate with a migration network is not supported on this host, falling back to evacuating without the migration network',
-            { error }
-          )
-          await this.callAsync('host.evacuate', hostRef)
-        } else {
-          throw error
+
+    // host ref
+    // migration network: optional and might not be supported
+    // batch size: optional and might not be supported
+    const params = [hostRef, migrationNetworkRef ?? Ref.EMPTY, this._vmEvacuationConcurrency]
+
+    // Removes n params from the end and keeps removing until a non-empty param is found
+    const popParamsAndTrim = (n = 0) => {
+      let last
+      let i = 0
+      while (i < n || (last = params[params.length - 1]) === undefined || last === Ref.EMPTY) {
+        if (params.length <= 1) {
+          throw new Error('not enough params left')
         }
+        params.pop()
+        i++
       }
+    }
+
+    popParamsAndTrim()
+
+    try {
+      await pRetry(() => this.callAsync('host.evacuate', ...params), {
+        delay: 0,
+        when: { code: 'MESSAGE_PARAMETER_COUNT_MISMATCH' },
+        onRetry: error => {
+          log.warn(error)
+          popParamsAndTrim(1)
+        },
+      })
     } catch (error) {
       if (!force) {
         await this.call('host.enable', hostRef)
@@ -519,8 +536,8 @@ export default class Xapi extends XapiBase {
           mapVdisSrs[vdi.$id] !== undefined
             ? hostXapi.getObject(mapVdisSrs[vdi.$id]).$ref
             : isSrConnected(vdi.$SR)
-            ? vdi.$SR.$ref
-            : getDefaultSrRef()
+              ? vdi.$SR.$ref
+              : getDefaultSrRef()
       }
     }
 
@@ -1328,7 +1345,10 @@ export default class Xapi extends XapiBase {
         )
       ),
     ])
-    buffer = addMbr(buffer)
+    // only add the MBR for windows VM
+    if (vm.platform.viridian === 'true') {
+      buffer = addMbr(buffer)
+    }
     const vdi = await this._getOrWaitObject(
       await this.VDI_create({
         name_label: 'XO CloudConfigDrive',
@@ -1417,6 +1437,36 @@ export default class Xapi extends XapiBase {
           {}
         )) !== 'false'
       )
+    } catch (error) {
+      if (error.code === 'XENAPI_MISSING_PLUGIN' || error.code === 'UNKNOWN_XENAPI_PLUGIN_FUNCTION') {
+        return null
+      } else {
+        throw error
+      }
+    }
+  }
+
+  async getSmartctlHealth(hostId) {
+    try {
+      return JSON.parse(await this.call('host.call_plugin', this.getObject(hostId).$ref, 'smartctl.py', 'health', {}))
+    } catch (error) {
+      if (error.code === 'XENAPI_MISSING_PLUGIN' || error.code === 'UNKNOWN_XENAPI_PLUGIN_FUNCTION') {
+        return null
+      } else {
+        throw error
+      }
+    }
+  }
+
+  async getSmartctlInformation(hostId, deviceNames) {
+    try {
+      const informations = JSON.parse(
+        await this.call('host.call_plugin', this.getObject(hostId).$ref, 'smartctl.py', 'information', {})
+      )
+      if (deviceNames === undefined) {
+        return informations
+      }
+      return pick(informations, deviceNames)
     } catch (error) {
       if (error.code === 'XENAPI_MISSING_PLUGIN' || error.code === 'UNKNOWN_XENAPI_PLUGIN_FUNCTION') {
         return null

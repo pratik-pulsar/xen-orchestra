@@ -67,8 +67,8 @@ const getIds = value =>
   value == null || typeof value === 'string' || isInteger(value)
     ? value
     : Array.isArray(value)
-    ? map(value, getIds)
-    : value.id
+      ? map(value, getIds)
+      : value.id
 
 const getOption = (object, container) => ({
   label: container ? `${getLabel(object)} ${getLabel(container)}` : getLabel(object),
@@ -159,11 +159,11 @@ class GenericSelect extends React.Component {
       return isEmpty(missingObjects)
         ? objects
         : withContainers
-        ? {
-            ...objects,
-            missingObjects,
-          }
-        : [...objects, ...missingObjects]
+          ? {
+              ...objects,
+              missingObjects,
+            }
+          : [...objects, ...missingObjects]
     }
   )
 
@@ -251,6 +251,7 @@ class GenericSelect extends React.Component {
             ? `${option.xoItem.type}-resourceSet`
             : undefined,
         memoryFree: option.xoItem.type === 'host' || undefined,
+        showNetwork: true,
       })}
     </span>
   )

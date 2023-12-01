@@ -13,6 +13,7 @@ import humanFormat from 'human-format'
 import identity from 'lodash/identity.js'
 import isObject from 'lodash/isObject.js'
 import micromatch from 'micromatch'
+import os from 'os'
 import pairs from 'lodash/toPairs.js'
 import pick from 'lodash/pick.js'
 import prettyMs from 'pretty-ms'
@@ -47,7 +48,7 @@ async function connect() {
   return xo
 }
 
-async function parseRegisterArgs(args, tokenDescription, acceptToken = false) {
+async function parseRegisterArgs(args, tokenDescription, client, acceptToken = false) {
   const {
     allowUnauthorized,
     expiresIn,
@@ -84,21 +85,21 @@ async function parseRegisterArgs(args, tokenDescription, acceptToken = false) {
         pw(resolve)
       }),
     ] = opts
-    result.token = await _createToken({ ...result, description: tokenDescription, email, password })
+    result.token = await _createToken({ ...result, client, description: tokenDescription, email, password })
   }
 
   return result
 }
 
-async function _createToken({ allowUnauthorized, description, email, expiresIn, password, url }) {
+async function _createToken({ allowUnauthorized, client, description, email, expiresIn, password, url }) {
   const xo = new Xo({ rejectUnauthorized: !allowUnauthorized, url })
   await xo.open()
   try {
     await xo.signIn({ email, password })
     console.warn('Successfully logged with', xo.user.email)
 
-    return await xo.call('token.create', { description, expiresIn }).catch(error => {
-      // if invalid parameter error, retry without description for backward compatibility
+    return await xo.call('token.create', { client, description, expiresIn }).catch(error => {
+      // if invalid parameter error, retry without client and description for backward compatibility
       if (error.code === 10) {
         return xo.call('token.create', { expiresIn })
       }
@@ -219,6 +220,8 @@ function wrap(val) {
 
 // ===================================================================
 
+const PACKAGE_JSON = JSON.parse(readFileSync(new URL('package.json', import.meta.url)))
+
 const help = wrap(
   (function (pkg) {
     return `Usage:
@@ -271,6 +274,7 @@ const help = wrap(
 
     Examples:
       $name rest del tasks/<task id>
+      $name rest del vms/<vm id>/tags/<tag>
 
   $name rest get <collection> [fields=<fields>] [filter=<filter>] [limit=<limit>]
     List objects in a REST API collection.
@@ -344,6 +348,18 @@ const help = wrap(
       $name rest post tasks/<task id>/actions/abort
       $name rest post vms/<VM UUID>/actions/snapshot name_label='My snapshot'
 
+  $name rest put <collection>/<item id> <name>=<value>...
+    Put a item in a collection
+
+    <collection>/<item id>
+      Full path of the item to add
+
+    <name>=<value>...
+      Properties of the item
+
+    Examples:
+      $name rest put vms/<vm id>/tags/<tag>
+
 $name v$version`.replace(/<([^>]+)>|\$(\w+)/g, function (_, arg, key) {
       if (arg) {
         return '<' + chalk.yellow(arg) + '>'
@@ -355,7 +371,7 @@ $name v$version`.replace(/<([^>]+)>|\$(\w+)/g, function (_, arg, key) {
 
       return pkg[key]
     })
-  })(JSON.parse(readFileSync(new URL('package.json', import.meta.url))))
+  })(PACKAGE_JSON)
 )
 
 // -------------------------------------------------------------------
@@ -422,9 +438,18 @@ async function createToken(args) {
 COMMANDS.createToken = createToken
 
 async function register(args) {
-  const opts = await parseRegisterArgs(args, 'xo-cli --register', true)
+  let { clientId } = await config.load()
+  if (clientId === undefined) {
+    clientId = Math.random().toString(36).slice(2)
+  }
+
+  const { name, version } = PACKAGE_JSON
+  const label = `${name}@${version} - ${os.hostname()} - ${os.type()} ${os.machine()}`
+
+  const opts = await parseRegisterArgs(args, label, { id: clientId }, true)
   await config.set({
     allowUnauthorized: opts.allowUnauthorized,
+    clientId,
     server: opts.url,
     token: opts.token,
   })

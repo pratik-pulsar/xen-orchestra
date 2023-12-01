@@ -39,10 +39,11 @@ class Netbox {
   #endpoint
   #intervalToken
   #loaded
-  #netboxApiVersion
+  #netboxVersion
   #xoPools
   #removeApiMethods
   #syncInterval
+  #syncUsers
   #token
   #xo
 
@@ -64,6 +65,7 @@ class Netbox {
       this.#endpoint = 'http://' + this.#endpoint
     }
     this.#allowUnauthorized = configuration.allowUnauthorized ?? false
+    this.#syncUsers = configuration.syncUsers ?? false
     this.#token = configuration.token
     this.#xoPools = configuration.pools
     this.#syncInterval = configuration.syncInterval && configuration.syncInterval * 60 * 60 * 1e3
@@ -103,6 +105,9 @@ class Netbox {
   }
 
   async test() {
+    await this.#fetchNetboxVersion()
+    await this.#checkCustomFields()
+
     const randomSuffix = Math.random().toString(36).slice(2, 11)
     const name = '[TMP] Xen Orchestra Netbox plugin test - ' + randomSuffix
     await this.#request('/virtualization/cluster-types/', 'POST', {
@@ -112,8 +117,6 @@ class Netbox {
         "This type has been created by Xen Orchestra's Netbox plugin test. If it hasn't been properly deleted, you may delete it manually.",
     })
     const nbClusterTypes = await this.#request(`/virtualization/cluster-types/?name=${encodeURIComponent(name)}`)
-
-    await this.#checkCustomFields()
 
     if (nbClusterTypes.length !== 1) {
       throw new Error('Could not properly write and read Netbox')
@@ -144,25 +147,24 @@ class Netbox {
     const httpRequest = async () => {
       try {
         const response = await this.#xo.httpRequest(url, options)
-        this.#netboxApiVersion = response.headers['api-version']
-        const body = await response.text()
-        if (body.length > 0) {
-          return JSON.parse(body)
+        const resBody = await response.text()
+        if (resBody.length > 0) {
+          return JSON.parse(resBody)
         }
       } catch (error) {
-        error.data = {
-          method,
-          path,
-          body: dataDebug,
-        }
+        error.method = method
+        error.requestBody = dataDebug
+
+        let resBody = 'Netbox error could not be retrieved'
         try {
-          const body = await error.response.text()
-          if (body.length > 0) {
-            error.data.error = JSON.parse(body)
-          }
-        } catch {
-          throw error
+          resBody = await error.response.text()
+          error.netboxError = JSON.parse(resBody)
+        } catch (err) {
+          log.error(err)
+          // If the error couldn't be parsed, expose the response's raw body
+          error.netboxError = resBody
         }
+
         throw error
       }
     }
@@ -183,7 +185,7 @@ class Netbox {
       response = await httpRequest()
     }
 
-    if (method !== 'GET') {
+    if (method !== 'GET' || response.results === undefined) {
       return response
     }
 
@@ -206,17 +208,137 @@ class Netbox {
       throw new Error('UUID custom field was not found. Please create it manually from your Netbox interface.')
     }
     const { content_types: types } = uuidCustomField
-    if (TYPES_WITH_UUID.some(type => !types.includes(type))) {
-      throw new Error('UUID custom field must be assigned to types ' + TYPES_WITH_UUID.join(', '))
+    const typesWithUuid = TYPES_WITH_UUID
+    if (this.#syncUsers) {
+      typesWithUuid.push('tenancy.tenant')
+    }
+    if (typesWithUuid.some(type => !types.includes(type))) {
+      throw new Error('UUID custom field must be assigned to types ' + typesWithUuid.join(', '))
+    }
+  }
+
+  async #fetchNetboxVersion() {
+    try {
+      this.#netboxVersion = semver.coerce((await this.#request('/status/'))['netbox-version']).version
+    } catch (err) {
+      if (err?.response?.statusCode === 404) {
+        // Endpoint not supported on versions prior to v2.10
+        // Best effort to support earlier versions without knowing the version explicitly
+        return
+      }
+
+      throw err
     }
   }
 
   // ---------------------------------------------------------------------------
 
   async #synchronize(xoPools = this.#xoPools) {
+    await this.#fetchNetboxVersion()
     await this.#checkCustomFields()
 
     log.info(`Synchronizing ${xoPools.length} pools with Netbox`, { pools: xoPools })
+
+    // Tenants -----------------------------------------------------------------
+
+    let nbTenants
+    if (this.#syncUsers) {
+      log.info('Synchronizing users')
+
+      const createNbTenant = xoUser => {
+        const name = xoUser.email.slice(0, NAME_MAX_LENGTH)
+        return {
+          custom_fields: { uuid: xoUser.id },
+          name,
+          slug: slugify(name),
+          description: 'XO user',
+        }
+      }
+
+      const xoUsers = await this.#xo.getAllUsers()
+
+      nbTenants = keyBy(await this.#request('/tenancy/tenants/'), 'custom_fields.uuid')
+      delete nbTenants.null // Ignore tenants that don't have a UUID
+
+      const nbTenantsToCheck = { ...nbTenants }
+
+      const tenantsToUpdate = []
+      const tenantsToCreate = []
+      for (const xoUser of xoUsers) {
+        const nbTenant = nbTenants[xoUser.id]
+        delete nbTenantsToCheck[xoUser.id]
+
+        const updatedTenant = createNbTenant(xoUser)
+
+        if (nbTenant !== undefined) {
+          // Tenant was found in Netbox: update it
+          const patch = diff(updatedTenant, nbTenant)
+          if (patch !== undefined) {
+            tenantsToUpdate.push(patch)
+          }
+        } else {
+          // Tenant wasn't found: create it
+          tenantsToCreate.push(updatedTenant)
+        }
+      }
+
+      // Delete all the other tenants that weren't found in XO
+      const tenantsToDelete = Object.values(nbTenantsToCheck)
+
+      // If a tenant is assigned to a VM (dependentTenants), we must unassign it first.
+      // If a tenant is assigned to another type of object (nonDeletableTenants), we simply log an error.
+      const nonDeletableTenants = []
+      const dependentTenants = []
+      const nonDependentTenants = []
+      for (const nbTenant of tenantsToDelete) {
+        if (
+          (nbTenant.circuit_count ?? 0) +
+            (nbTenant.device_count ?? 0) +
+            (nbTenant.ipaddress_count ?? 0) +
+            (nbTenant.prefix_count ?? 0) +
+            (nbTenant.rack_count ?? 0) +
+            (nbTenant.site_count ?? 0) +
+            (nbTenant.vlan_count ?? 0) +
+            (nbTenant.vrf_count ?? 0) +
+            (nbTenant.cluster_count ?? 0) >
+          0
+        ) {
+          nonDeletableTenants.push(nbTenant)
+        } else if ((nbTenant.virtualmachine_count ?? 0) > 0) {
+          dependentTenants.push(nbTenant)
+        } else {
+          nonDependentTenants.push(nbTenant)
+        }
+      }
+
+      if (nonDeletableTenants.length > 0) {
+        log.warn(`Could not delete ${nonDeletableTenants.length} tenants because dependent object count is not 0`, {
+          tenant: nonDeletableTenants[0],
+        })
+      }
+
+      const nbVms = await this.#request('/virtualization/virtual-machines/')
+
+      const vmsToUpdate = []
+      for (const nbVm of nbVms) {
+        if (some(dependentTenants, { id: nbVm.tenant?.id })) {
+          vmsToUpdate.push({ id: nbVm.id, tenant: null })
+        }
+      }
+
+      // Perform calls to Netbox
+      await this.#request('/virtualization/virtual-machines/', 'PATCH', vmsToUpdate)
+      await this.#request(
+        '/tenancy/tenants/',
+        'DELETE',
+        dependentTenants.concat(nonDependentTenants).map(nbTenant => ({ id: nbTenant.id }))
+      )
+      tenantsToDelete.forEach(nbTenant => delete nbTenants[nbTenant.custom_fields.uuid])
+      Object.assign(
+        nbTenants,
+        keyBy(await this.#request('/tenancy/tenants/', 'POST', tenantsToCreate), 'custom_fields.uuid')
+      )
+    }
 
     // Cluster type ------------------------------------------------------------
 
@@ -259,6 +381,7 @@ class Netbox {
       await this.#request(`/virtualization/clusters/?type_id=${nbClusterType.id}`),
       'custom_fields.uuid'
     )
+    delete allNbClusters.null
     const nbClusters = pick(allNbClusters, xoPools)
 
     const clustersToCreate = []
@@ -316,7 +439,7 @@ class Netbox {
 
     log.info('Synchronizing VMs')
 
-    const createNbVm = async (xoVm, { nbCluster, nbPlatforms, nbTags }) => {
+    const createNbVm = async (xoVm, { nbCluster, nbPlatforms, nbTags, nbTenants }) => {
       const nbVm = {
         custom_fields: { uuid: xoVm.uuid },
         name: xoVm.name_label.slice(0, NAME_MAX_LENGTH).trim(),
@@ -336,6 +459,14 @@ class Netbox {
         tags: [],
       }
 
+      // Prior to Netbox v3.3.0: no "site" field on VMs
+      // v3.3.0: "site" is REQUIRED and MUST be the same as cluster's site
+      // v3.3.5: "site" is OPTIONAL (auto-assigned in UI, not in API). `null` and cluster's site are accepted.
+      // v3.4.8: "site" is OPTIONAL and AUTO-ASSIGNED with cluster's site. If passed: ignored except if site is different from cluster's, then error.
+      if (this.#netboxVersion !== undefined && semver.satisfies(this.#netboxVersion, '3.3.0 - 3.4.7')) {
+        nbVm.site = find(nbClusters, { id: nbCluster.id })?.site?.id ?? null
+      }
+
       const distro = xoVm.os_version?.distro
       if (distro != null) {
         const slug = slugify(distro)
@@ -352,6 +483,7 @@ class Netbox {
         nbVm.platform = nbPlatform.id
       }
 
+      // Tags
       const nbVmTags = []
       for (const tag of xoVm.tags) {
         const slug = slugify(tag)
@@ -378,11 +510,14 @@ class Netbox {
       // Sort them so that they can be compared by diff()
       nbVm.tags = nbVmTags.sort(({ id: id1 }, { id: id2 }) => (id1 < id2 ? -1 : 1))
 
+      // Tenant = VM creator
+      if (this.#syncUsers) {
+        const nbTenant = nbTenants[xoVm.creation?.user]
+        nbVm.tenant = nbTenant === undefined ? null : nbTenant.id
+      }
+
       // https://netbox.readthedocs.io/en/stable/release-notes/version-2.7/#api-choice-fields-now-use-string-values-3569
-      if (
-        this.#netboxApiVersion !== undefined &&
-        !semver.satisfies(semver.coerce(this.#netboxApiVersion).version, '>=2.7.0')
-      ) {
+      if (this.#netboxVersion === undefined || !semver.satisfies(this.#netboxVersion, '>=2.7.0')) {
         nbVm.status = xoVm.power_state === 'Running' ? 1 : 0
       }
 
@@ -393,10 +528,14 @@ class Netbox {
     const flattenNested = nbVm => ({
       ...nbVm,
       cluster: nbVm.cluster?.id ?? null,
+      // If site is not supported by Netbox, its value is undefined
+      // If site is supported by Netbox but empty, its value is null
+      site: nbVm.site == null ? nbVm.site : nbVm.site.id,
       status: nbVm.status?.value ?? null,
       platform: nbVm.platform?.id ?? null,
       // Sort them so that they can be compared by diff()
       tags: nbVm.tags.map(nbTag => ({ id: nbTag.id })).sort(({ id: id1 }, { id: id2 }) => (id1 < id2 ? -1 : 1)),
+      tenant: nbVm.tenant?.id ?? null,
     })
 
     const nbPlatforms = keyBy(await this.#request('/dcim/platforms/'), 'id')
@@ -411,7 +550,9 @@ class Netbox {
     // Then make them objects to map the Netbox VMs to their XO VMs
     // { VM UUID → Netbox VM }
     const allNbVms = keyBy(allNbVmsList, 'custom_fields.uuid')
+    delete allNbVms.null
     const nbVms = keyBy(nbVmsList, 'custom_fields.uuid')
+    delete nbVms.null
 
     // Used for name deduplication
     // Start by storing the names of the VMs that have been created manually in
@@ -438,7 +579,7 @@ class Netbox {
         const nbVm = allNbVms[xoVm.uuid]
         delete xoPoolNbVms[xoVm.uuid]
 
-        const updatedVm = await createNbVm(xoVm, { nbCluster, nbPlatforms, nbTags })
+        const updatedVm = await createNbVm(xoVm, { nbCluster, nbPlatforms, nbTags, nbTenants })
 
         if (nbVm !== undefined) {
           // VM found in Netbox: update VM (I.1)
@@ -464,7 +605,7 @@ class Netbox {
         const nbCluster = allNbClusters[xoPool?.uuid]
         if (nbCluster !== undefined) {
           // If the VM is found in XO: update it if necessary (II.1)
-          const updatedVm = await createNbVm(xoVm, { nbCluster, nbPlatforms, nbTags })
+          const updatedVm = await createNbVm(xoVm, { nbCluster, nbPlatforms, nbTags, nbTenants })
           const patch = diff(updatedVm, flattenNested(nbVm))
 
           if (patch === undefined) {
@@ -529,6 +670,7 @@ class Netbox {
     const nbIfsList = await this.#request(`/virtualization/interfaces/?${clusterFilter}`)
     // { ID → Interface }
     const nbIfs = keyBy(nbIfsList, 'custom_fields.uuid')
+    delete nbIfs.null
 
     const ifsToDelete = []
     const ifsToUpdate = []
@@ -540,10 +682,12 @@ class Netbox {
         continue
       }
       // Start by deleting old interfaces attached to this Netbox VM
-      Object.entries(nbIfs).forEach(([id, nbIf]) => {
-        if (nbIf.virtual_machine.id === nbVm.id && !xoVm.VIFs.includes(nbIf.custom_fields.uuid)) {
+      // Loop over the array to make sure interfaces with a `null` UUID also get deleted
+      nbIfsList.forEach(nbIf => {
+        const xoVifId = nbIf.custom_fields.uuid
+        if (nbIf.virtual_machine.id === nbVm.id && !xoVm.VIFs.includes(xoVifId)) {
           ifsToDelete.push({ id: nbIf.id })
-          delete nbIfs[id]
+          delete nbIfs[xoVifId]
         }
       })
 
@@ -770,7 +914,10 @@ class Netbox {
       }
     }
 
-    Object.assign(nbVms, keyBy(await this.#request('/virtualization/virtual-machines/', 'PATCH', vmsToUpdate2)))
+    Object.assign(
+      nbVms,
+      keyBy(await this.#request('/virtualization/virtual-machines/', 'PATCH', vmsToUpdate2), 'custom_fields.uuid')
+    )
 
     log.info(`Done synchronizing ${xoPools.length} pools with Netbox`, { pools: xoPools })
   }
