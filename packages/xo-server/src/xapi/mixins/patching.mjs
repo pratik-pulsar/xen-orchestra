@@ -59,13 +59,13 @@ const listMissingPatches = debounceWithKey(_listMissingPatches, LISTING_DEBOUNCE
 // =============================================================================
 
 export default {
-  // raw { uuid: patch } map translated from updates.xensource.com/XenServer/updates.xml
+  // raw { uuid: patch } map translated from updates.ops.xenserver.com/xenserver/updates.xml
   // FIXME: should be static
   @decorateWith(debounceWithKey, 24 * 60 * 60 * 1000, function () {
     return this
   })
   async _getXenUpdates() {
-    const response = await this.xo.httpRequest('https://updates.xensource.com/XenServer/updates.xml')
+    const response = await this.xo.httpRequest('https://updates.ops.xenserver.com/xenserver/updates.xml')
 
     const data = parseXml(await response.buffer()).patchdata
 
@@ -329,7 +329,7 @@ export default {
   },
 
   // Legacy XS patches: upload a patch on a pool before installing it
-  async _legacyUploadPatch(uuid) {
+  async _legacyUploadPatch(uuid, xsCredentials) {
     // check if the patch has already been uploaded
     try {
       return this.getObjectByUuid(uuid)
@@ -342,7 +342,8 @@ export default {
       throw new Error('no such patch ' + uuid)
     }
 
-    let stream = await this.xo.httpRequest(patchInfo.url)
+    const { username, apikey } = xsCredentials
+    let stream = await this.xo.httpRequest(patchInfo.url, { auth: `${username}:${apikey}` })
     stream = await new Promise((resolve, reject) => {
       const PATCH_RE = /\.xsupdate$/
       stream
@@ -367,7 +368,7 @@ export default {
   // ----------
 
   // upload patch on a VDI on a shared SR
-  async _uploadPatch($defer, uuid) {
+  async _uploadPatch($defer, uuid, xsCredentials) {
     log.debug(`downloading patch ${uuid}`)
 
     const patchInfo = (await this._getXenUpdates()).patches[uuid]
@@ -375,7 +376,8 @@ export default {
       throw new Error('no such patch ' + uuid)
     }
 
-    let stream = await this.xo.httpRequest(patchInfo.url)
+    const { username, apikey } = xsCredentials
+    let stream = await this.xo.httpRequest(patchInfo.url, { auth: `${username}:${apikey}` })
     stream = await new Promise((resolve, reject) => {
       stream
         .pipe(unzip.Parse())
@@ -402,13 +404,18 @@ export default {
     return vdi
   },
 
-  _poolWideInstall: deferrable(async function ($defer, patches) {
+  _poolWideInstall: deferrable(async function ($defer, patches, xsCredentials) {
+    // New XS patching system: https://support.citrix.com/article/CTX473972/upcoming-changes-in-xencenter
+    if (xsCredentials?.username === undefined || xsCredentials?.apikey === undefined) {
+      throw new Error('XenServer credentials not found. See https://xen-orchestra.com/docs/updater.html#xenserver-updates')
+    }
+
     // Legacy XS patches
     if (!useUpdateSystem(this.pool.$master)) {
       // for each patch: pool_patch.pool_apply
       for (const p of patches) {
         const [patch] = await Promise.all([
-          this._legacyUploadPatch(p.uuid),
+          this._legacyUploadPatch(p.uuid, xsCredentials),
           this._ejectToolsIsos(this.pool.$master.$ref),
         ])
 
@@ -420,13 +427,20 @@ export default {
 
     // for each patch: pool_update.introduce → pool_update.pool_apply
     for (const p of patches) {
-      const [vdi] = await Promise.all([this._uploadPatch($defer, p.uuid), this._ejectToolsIsos()])
+      const [vdi] = await Promise.all([this._uploadPatch($defer, p.uuid, xsCredentials), this._ejectToolsIsos()])
       if (vdi === undefined) {
         throw new Error('patch could not be uploaded')
       }
 
+      const updateRef = await this.call('pool_update.introduce', vdi.$ref)
+
+      // Checks for license restrictions (and other conditions?)
+      await Promise.all(filter(this.objects.all, { $type: 'host' }).map(host =>
+        this.call('pool_update.precheck', updateRef, host.$ref)
+      ))
+
       log.debug(`installing patch ${p.uuid}`)
-      await this.call('pool_update.pool_apply', await this.call('pool_update.introduce', vdi.$ref))
+      await this.call('pool_update.pool_apply', updateRef)
     }
   }),
 
@@ -449,7 +463,7 @@ export default {
   //
   // XS pool-wide optimization only works when no hosts are specified
   // it may install more patches that specified if some of them require other patches
-  async installPatches({ patches, hosts } = {}) {
+  async installPatches({ patches, hosts, xsCredentials } = {}) {
     // XCP
     if (_isXcp(this.pool.$master)) {
       return this._xcpUpdate(hosts)
@@ -467,7 +481,7 @@ export default {
         installablePatches.map(patch => patch.uuid)
       )
 
-      return this._poolWideInstall(installablePatches)
+      return this._poolWideInstall(installablePatches, xsCredentials)
     }
 
     // for each host
@@ -479,7 +493,7 @@ export default {
   },
 
   @decorateWith(deferrable)
-  async rollingPoolUpdate($defer) {
+  async rollingPoolUpdate($defer, { xsCredentials } = {}) {
     const isXcp = _isXcp(this.pool.$master)
 
     if (this.pool.ha_enabled) {
@@ -516,7 +530,7 @@ export default {
     // On XS/CH, start by installing patches on all hosts
     if (!isXcp) {
       log.debug('Install patches')
-      await this.installPatches()
+      await this.installPatches({ xsCredentials })
     }
 
     // Remember on which hosts the running VMs are
@@ -615,7 +629,13 @@ export default {
         continue
       }
 
+      const residentVms = host.$resident_VMs.map(vm => vm.uuid)
+
       for (const vmId of vmIds) {
+        if (residentVms.includes(vmId)) {
+          continue
+        }
+
         try {
           await this.migrateVm(vmId, this, hostId)
         } catch (err) {

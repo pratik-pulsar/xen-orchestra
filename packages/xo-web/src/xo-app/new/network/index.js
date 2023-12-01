@@ -154,9 +154,9 @@ const NewNetwork = decorate([
         host =>
           host.$pool === pool.id || networks.some(({ pool }) => pool !== undefined && pool.id === host.$pool),
       pifPredicate:
-        (_, { pool }) =>
+        ({ bonded }, { pool }) =>
         pif =>
-          !pif.isBondSlave && pif.vlan === -1 && pif.$host === (pool && pool.master),
+          !pif.isBondSlave && !(bonded && pif.isBondMaster) && pif.vlan === -1 && pif.$host === (pool && pool.master),
       pifPredicateSdnController:
         (_, { pool }) =>
         pif =>
@@ -213,33 +213,33 @@ const NewNetwork = decorate([
             pool: pool.id,
           })
         : isPrivate
-        ? (() => {
-            const poolIds = [pool.id]
-            const pifIds = [pif.id]
-            for (const network of networks) {
-              poolIds.push(network.pool.id)
-              pifIds.push(network.pif.id)
-            }
-            return createPrivateNetwork({
-              poolIds,
-              pifIds,
-              name,
+          ? (() => {
+              const poolIds = [pool.id]
+              const pifIds = [pif.id]
+              for (const network of networks) {
+                poolIds.push(network.pool.id)
+                pifIds.push(network.pif.id)
+              }
+              return createPrivateNetwork({
+                poolIds,
+                pifIds,
+                name,
+                description,
+                encapsulation,
+                encrypted,
+                mtu,
+                preferredCenter: networkCenter,
+              })
+            })()
+          : createNetwork({
               description,
-              encapsulation,
-              encrypted,
               mtu,
-              preferredCenter: networkCenter,
+              name,
+              nbd,
+              pif: pif == null ? undefined : pif.id,
+              pool: pool.id,
+              vlan,
             })
-          })()
-        : createNetwork({
-            description,
-            mtu,
-            name,
-            nbd,
-            pif: pif == null ? undefined : pif.id,
-            pool: pool.id,
-            vlan,
-          })
     }
 
     _selectPool = pool => {

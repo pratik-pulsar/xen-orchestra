@@ -277,6 +277,10 @@ importVmBackup.params = {
   sr: {
     type: 'string',
   },
+  useDifferentialRestore: {
+    type: 'boolean',
+    optional: true
+  }
 }
 
 export function checkBackup({ id, settings, sr }) {
@@ -375,6 +379,50 @@ fetchFiles.params = {
     items: { type: 'string' },
     minItems: 1,
     type: 'array',
+  },
+  remote: {
+    type: 'string',
+  },
+}
+
+export function listMountedPartitions() {
+  return this.listMountedPartitions()
+}
+
+listMountedPartitions.permission = 'admin'
+
+export function mountPartition({ remote, disk, partition }) {
+  return this.mountPartition(remote, disk, partition)
+}
+
+mountPartition.permission = 'admin'
+
+mountPartition.params = {
+  disk: {
+    type: 'string',
+  },
+  partition: {
+    optional: true,
+    type: 'string',
+  },
+  remote: {
+    type: 'string',
+  },
+}
+
+export function unmountPartition({ remote, disk, partition }) {
+  return this.unmountPartition(remote, disk, partition)
+}
+
+unmountPartition.permission = 'admin'
+
+unmountPartition.params = {
+  disk: {
+    type: 'string',
+  },
+  partition: {
+    optional: true,
+    type: 'string',
   },
   remote: {
     type: 'string',

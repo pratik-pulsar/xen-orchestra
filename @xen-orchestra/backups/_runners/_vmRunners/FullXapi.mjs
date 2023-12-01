@@ -35,13 +35,25 @@ export const FullXapi = class FullXapiVmBackupRunner extends AbstractXapi {
         useSnapshot: false,
       })
     )
+
+    const vdis = await exportedVm.$getDisks()
+    let maxStreamLength = 1024 * 1024 // Ovf file and tar headers are a few KB, let's stay safe
+    for (const vdiRef of vdis) {
+      const vdi = await this._xapi.getRecord('VDI', vdiRef)
+
+      // the size a of fully allocated vdi will be virtual_size  exaclty, it's a gross over evaluation
+      // of the real stream size in general, since a disk is never completly full
+      // vdi.physical_size seems to underevaluate a lot the real disk usage of a VDI, as of 2023-10-30
+      maxStreamLength += vdi.virtual_size
+    }
+
     const sizeContainer = watchStreamSize(stream)
 
     const timestamp = Date.now()
-
     await this._callWriters(
       writer =>
         writer.run({
+          maxStreamLength,
           sizeContainer,
           stream: forkStreamUnpipe(stream),
           timestamp,

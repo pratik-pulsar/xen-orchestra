@@ -2,6 +2,28 @@
 
 ## **next**
 
+## **0.1.6** (2023-11-30)
+
+- Explicit error if users attempt to connect from a slave host (PR [#7110](https://github.com/vatesfr/xen-orchestra/pull/7110))
+- More compact UI (PR [#7159](https://github.com/vatesfr/xen-orchestra/pull/7159))
+- Fix dashboard host patches list (PR [#7169](https://github.com/vatesfr/xen-orchestra/pull/7169))
+- Ability to export selected VMs (PR [#7174](https://github.com/vatesfr/xen-orchestra/pull/7174))
+- [VM/Action] Ability to export a VM from its view (PR [#7190](https://github.com/vatesfr/xen-orchestra/pull/7190))
+
+## **0.1.5** (2023-11-07)
+
+- Ability to snapshot/copy a VM from its view (PR [#7087](https://github.com/vatesfr/xen-orchestra/pull/7087))
+- [Header] Replace logo with "XO LITE" (PR [#7118](https://github.com/vatesfr/xen-orchestra/pull/7118))
+- New VM console toolbar + Ability to send Ctrl+Alt+Del (PR [#7088](https://github.com/vatesfr/xen-orchestra/pull/7088))
+- Total overhaul of the modal system (PR [#7134](https://github.com/vatesfr/xen-orchestra/pull/7134))
+
+## **0.1.4** (2023-10-03)
+
+- Ability to migrate selected VMs to another host (PR [#7040](https://github.com/vatesfr/xen-orchestra/pull/7040))
+- Ability to snapshot selected VMs (PR [#7021](https://github.com/vatesfr/xen-orchestra/pull/7021))
+- Add Patches to Pool Dashboard (PR [#6709](https://github.com/vatesfr/xen-orchestra/pull/6709))
+- Add remember me checkbox on the login page (PR [#7030](https://github.com/vatesfr/xen-orchestra/pull/7030))
+
 ## **0.1.3** (2023-09-01)
 
 - Add Alarms to Pool Dashboard (PR [#6976](https://github.com/vatesfr/xen-orchestra/pull/6976))

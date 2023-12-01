@@ -1,8 +1,188 @@
 # ChangeLog
 
-## **5.86.1** (2023-09-07)
+## **5.89.0** (2023-11-30)
 
 <img id="latest" src="https://badgen.net/badge/channel/latest/yellow" alt="Channel: latest" />
+
+### Highlights
+
+- [Restore] Show source remote and restoration time on a restored VM (PR [#7186](https://github.com/vatesfr/xen-orchestra/pull/7186))
+- [Backup/Import] Show disk import status during Incremental Replication or restoration of Incremental Backup (PR [#7171](https://github.com/vatesfr/xen-orchestra/pull/7171))
+- [VM/Console] Add a message to indicate that the console view has been [disabled](https://support.citrix.com/article/CTX217766/how-to-disable-the-console-for-the-vm-in-xencenter) for this VM [#6319](https://github.com/vatesfr/xen-orchestra/issues/6319) (PR [#7161](https://github.com/vatesfr/xen-orchestra/pull/7161))
+- [REST API] `tags` property can be updated (PR [#7196](https://github.com/vatesfr/xen-orchestra/pull/7196))
+- [REST API] A VDI export can now be imported in an existing VDI (PR [#7199](https://github.com/vatesfr/xen-orchestra/pull/7199))
+- [REST API] Support VM import using the XVA format
+- [File Restore] API method `backupNg.mountPartition` to manually mount a backup disk on the XOA
+- [Backup] Implement differential restore (PR [#7202](https://github.com/vatesfr/xen-orchestra/pull/7202))
+- [VM/Disks] Display task information when importing VDIs (PR [#7197](https://github.com/vatesfr/xen-orchestra/pull/7197))
+- [VM Creation] Added ISO option in new VM form when creating from template with a disk [#3464](https://github.com/vatesfr/xen-orchestra/issues/3464) (PR [#7166](https://github.com/vatesfr/xen-orchestra/pull/7166))
+- [Task] Show the related SR on the Garbage Collector Task ( vdi coalescing) (PR [#7189](https://github.com/vatesfr/xen-orchestra/pull/7189))
+
+### Enhancements
+
+- [Netbox] Ability to synchronize XO users as Netbox tenants (PR [#7158](https://github.com/vatesfr/xen-orchestra/pull/7158))
+- [Backup] Don't backup VM with tag xo:no-bak (PR [#7173](https://github.com/vatesfr/xen-orchestra/pull/7173))
+
+### Bug fixes
+
+- [Backup/Restore] In case of snapshot with memory, create the suspend VDI on the correct SR instead of the default one
+- [Import/ESXi] Handle `Cannot read properties of undefined (reading 'perDatastoreUsage')` error when importing VM without storage (PR [#7168](https://github.com/vatesfr/xen-orchestra/pull/7168))
+- [Export/OVA] Handle export with resulting disk larger than 8.2GB (PR [#7183](https://github.com/vatesfr/xen-orchestra/pull/7183))
+- [Self Service] Fix error displayed after adding a VM to a resource set (PR [#7144](https://github.com/vatesfr/xen-orchestra/pull/7144))
+- [Backup/HealthCheck] Don't backup VM created by health check when using smart mode (PR [#7173](https://github.com/vatesfr/xen-orchestra/pull/7173))
+
+### Released packages
+
+- vhd-lib 4.7.0
+- @vates/multi-key-map 0.2.0
+- @vates/disposable 0.1.5
+- @xen-orchestra/fs 4.1.3
+- xen-api 2.0.0
+- @vates/nbd-client 2.0.1
+- @xen-orchestra/xapi 4.0.0
+- @xen-orchestra/backups 0.44.2
+- @xen-orchestra/backups-cli 1.0.14
+- @xen-orchestra/cr-seed-cli 1.0.0
+- @xen-orchestra/proxy 0.26.41
+- xo-vmdk-to-vhd 2.5.7
+- @xen-orchestra/vmware-explorer 0.3.1
+- xapi-explore-sr 0.4.2
+- xo-cli 0.22.0
+- xo-server 5.129.0
+- xo-server-netbox 1.4.0
+- xo-web 5.130.0
+
+## **5.88.2** (2023-11-13)
+
+<img id="stable" src="https://badgen.net/badge/channel/stable/green" alt="Channel: stable" />
+
+### Enhancement
+
+- [REST API] Add `users` collection
+- [Authentication] Re-use existing token instead of creating a new one when connecting with the same user on the same browser
+
+### Released packages
+
+- xo-server 5.125.3
+
+## **5.88.1** (2023-11-07)
+
+### Bug fixes
+
+- [Netbox] Fix VMs' `site` property being unnecessarily updated on some versions of Netbox (PR [#7145](https://github.com/vatesfr/xen-orchestra/pull/7145))
+- [Netbox] Fix "400 Bad Request" error (PR [#7153](https://github.com/vatesfr/xen-orchestra/pull/7153))
+- [Backup/Restore] Fix timeout after 5 minutes [#7052](https://github.com/vatesfr/xen-orchestra/issues/7052)
+- [Dashboard/Health] Empty VDIs are no longer considered orphans (PR [#7102](https://github.com/vatesfr/xen-orchestra/pull/7102))
+- [S3] Handle S3 without _Object Lock_ implementation (PR [#7157](https://github.com/vatesfr/xen-orchestra/pull/7157))
+
+### Released packages
+
+- @xen-orchestra/fs 4.1.2
+- @xen-orchestra/proxy 0.26.38
+- xo-server 5.125.2
+- xo-server-netbox 1.3.3
+- xo-web 5.127.2
+
+## **5.88.0** (2023-10-31)
+
+### Highlights
+
+- [About] For source users, display if their XO is up to date [#5934](https://github.com/vatesfr/xen-orchestra/issues/5934) (PR [#7091](https://github.com/vatesfr/xen-orchestra/pull/7091))
+- [Self] Show number of VMs that belong to each Resource Set (PR [#7114](https://github.com/vatesfr/xen-orchestra/pull/7114))
+- [VM/New] Possibility to create and attach a _VTPM_ to a VM [#7066](https://github.com/vatesfr/xen-orchestra/issues/7066) [Forum#6578](https://xcp-ng.org/forum/topic/6578/xcp-ng-8-3-public-alpha/109) (PR [#7077](https://github.com/vatesfr/xen-orchestra/pull/7077))
+- [XOSTOR] Ability to create a XOSTOR storage (PR [#6983](https://github.com/vatesfr/xen-orchestra/pull/6983))
+
+### Enhancements
+
+- [Host/Advanced] Allow to force _Smart reboot_ if some resident VMs have the suspend operation blocked [Forum#7136](https://xcp-ng.org/forum/topic/7136/suspending-vms-during-host-reboot/23) (PR [#7025](https://github.com/vatesfr/xen-orchestra/pull/7025))
+- [Plugin/backup-report] Errors are now listed in XO tasks
+- [PIF] Show network name in PIF selectors (PR [#7081](https://github.com/vatesfr/xen-orchestra/pull/7081))
+- [VM/Advanced] Possibility to create/delete VTPM [#7066](https://github.com/vatesfr/xen-orchestra/issues/7066) [Forum#6578](https://xcp-ng.org/forum/topic/6578/xcp-ng-8-3-public-alpha/109) (PR [#7085](https://github.com/vatesfr/xen-orchestra/pull/7085))
+- [Dashboard/Health] Displays number of VDIs to coalesce (PR [#7111](https://github.com/vatesfr/xen-orchestra/pull/7111))
+- [Proxy] Ability to open support tunnel on XO Proxy (PRs [#7126](https://github.com/vatesfr/xen-orchestra/pull/7126) [#7127](https://github.com/vatesfr/xen-orchestra/pull/7127))
+- [New network] Remove bonded PIFs from selector when creating network (PR [#7136](https://github.com/vatesfr/xen-orchestra/pull/7136))
+- Try to preserve current page across reauthentication (PR [#7013](https://github.com/vatesfr/xen-orchestra/pull/7013))
+
+### Bug fixes
+
+- [Rolling Pool Update] After the update, when migrating VMs back to their host, do not migrate VMs that are already on the right host [Forum#7802](https://xcp-ng.org/forum/topic/7802) (PR [#7071](https://github.com/vatesfr/xen-orchestra/pull/7071))
+- [RPU] Fix "XenServer credentials not found" when running a Rolling Pool Update on a XenServer pool (PR [#7089](https://github.com/vatesfr/xen-orchestra/pull/7089))
+- [Usage report] Fix "Converting circular structure to JSON" error
+- [Home] Fix OS icons alignment (PR [#7090](https://github.com/vatesfr/xen-orchestra/pull/7090))
+- [SR/Advanced] Fix the total number of VDIs to coalesce by taking into account common chains [#7016](https://github.com/vatesfr/xen-orchestra/issues/7016) (PR [#7098](https://github.com/vatesfr/xen-orchestra/pull/7098))
+- Don't require to sign in again in XO after losing connection to XO Server (e.g. when restarting or upgrading XO) (PR [#7103](https://github.com/vatesfr/xen-orchestra/pull/7103))
+- [Usage report] Fix "Converting circular structure to JSON" error (PR [#7096](https://github.com/vatesfr/xen-orchestra/pull/7096))
+- [Usage report] Fix "Cannot convert undefined or null to object" error (PR [#7092](https://github.com/vatesfr/xen-orchestra/pull/7092))
+- [Plugin/transport-xmpp] Fix plugin load
+- [Self Service] Fix Self users not being able to snapshot VMs when they're members of a user group (PR [#7129](https://github.com/vatesfr/xen-orchestra/pull/7129))
+- [Netbox] Fix "The selected cluster is not assigned to this site" error [Forum#7887](https://xcp-ng.org/forum/topic/7887) (PR [#7124](https://github.com/vatesfr/xen-orchestra/pull/7124))
+- [Backups] Fix `MESSAGE_METHOD_UNKNOWN` during full backup [Forum#7894](https://xcp-ng.org/forum/topic/7894)(PR [#7139](https://github.com/vatesfr/xen-orchestra/pull/7139))
+
+### Released packages
+
+- @xen-orchestra/fs 4.1.1
+- @xen-orchestra/xapi 3.3.0
+- @xen-orchestra/mixins 0.14.0
+- xo-server-backup-reports 0.18.0
+- xo-server-transport-xmpp 0.1.3
+- xo-server-usage-report 0.10.5
+- @xen-orchestra/backups 0.43.2
+- @xen-orchestra/proxy 0.26.37
+- xo-cli 0.21.0
+- xo-server 5.125.1
+- xo-server-netbox 1.3.2
+- xo-web 5.127.1
+
+## **5.87.0** (2023-09-29)
+
+### Highlights
+
+- [Patches] Support new XenServer Updates system. See [our documentation](https://xen-orchestra.com/docs/updater.html#xenserver-updates). (PR [#7044](https://github.com/vatesfr/xen-orchestra/pull/7044))
+- [Host/Advanced] New button to download system logs [#3968](https://github.com/vatesfr/xen-orchestra/issues/3968) (PR [#7048](https://github.com/vatesfr/xen-orchestra/pull/7048))
+- [Home/Hosts, Pools] Display host brand and version (PR [#7027](https://github.com/vatesfr/xen-orchestra/pull/7027))
+- [SR] Ability to reclaim space [#1204](https://github.com/vatesfr/xen-orchestra/issues/1204) (PR [#7054](https://github.com/vatesfr/xen-orchestra/pull/7054))
+- [XOA] New button to restart XO Server directly from the UI (PR [#7056](https://github.com/vatesfr/xen-orchestra/pull/7056))
+- [Host/Advanced] Display system disks health based on the _smartctl_ plugin. [#4458](https://github.com/vatesfr/xen-orchestra/issues/4458) (PR [#7060](https://github.com/vatesfr/xen-orchestra/pull/7060))
+- [Authentication] Failed attempts are now logged as XO tasks (PR [#7061](https://github.com/vatesfr/xen-orchestra/pull/7061))
+- [Backup] Prevent VMs from being migrated while they are backed up (PR [#7024](https://github.com/vatesfr/xen-orchestra/pull/7024))
+- [Backup] Prevent VMs from being backed up while they are migrated (PR [#7024](https://github.com/vatesfr/xen-orchestra/pull/7024))
+
+### Enhancements
+
+- [Netbox] Don't delete VMs that have been created manually in XO-synced cluster [Forum#7639](https://xcp-ng.org/forum/topic/7639) (PR [#7008](https://github.com/vatesfr/xen-orchestra/pull/7008))
+- [Kubernetes] _Search domains_ field is now optional [#7028](https://github.com/vatesfr/xen-orchestra/pull/7028)
+- [REST API] Hosts' audit and system logs can be downloaded [#3968](https://github.com/vatesfr/xen-orchestra/issues/3968) (PR [#7048](https://github.com/vatesfr/xen-orchestra/pull/7048))
+
+### Bug fixes
+
+- [Backup/Restore] Fix `Cannot read properties of undefined (reading 'id')` error when restoring via an XO Proxy (PR [#7026](https://github.com/vatesfr/xen-orchestra/pull/7026))
+- [Google/GitHub Auth] Fix `Internal Server Error` (xo-server: `Cannot read properties of undefined (reading 'id')`) when logging in with Google or GitHub [Forum#7729](https://xcp-ng.org/forum/topic/7729) (PRs [#7031](https://github.com/vatesfr/xen-orchestra/pull/7031) [#7032](https://github.com/vatesfr/xen-orchestra/pull/7032))
+- [Jobs] Fix schedules not being displayed on first load [#6968](https://github.com/vatesfr/xen-orchestra/issues/6968) (PR [#7034](https://github.com/vatesfr/xen-orchestra/pull/7034))
+- [OVA Export] Fix support of disks with more than 8.2GiB of content (PR [#7047](https://github.com/vatesfr/xen-orchestra/pull/7047))
+- [Backup] Fix `VHDFile implementation is not compatible with encrypted remote` when using VHD directory with encryption (PR [#7045](https://github.com/vatesfr/xen-orchestra/pull/7045))
+- [Backup/Mirror] Fix `xo:fs:local WARN lock compromised` when mirroring a Backup Repository to a local/NFS/SMB repository ([#7043](https://github.com/vatesfr/xen-orchestra/pull/7043))
+- [Ova import] Fix importing VM with collision in disk position (PR [#7051](https://github.com/vatesfr/xen-orchestra/pull/7051)) (issue [7046](https://github.com/vatesfr/xen-orchestra/issues/7046))
+- [Backup/Mirror] Fix backup report not being sent (PR [#7049](https://github.com/vatesfr/xen-orchestra/pull/7049))
+- [New VM] Only add MBR to cloud-init drive on Windows VMs to avoid booting issues (e.g. with Talos) (PR [#7050](https://github.com/vatesfr/xen-orchestra/pull/7050))
+- [VDI Import] Add the SR name to the corresponding XAPI task (PR [#6979](https://github.com/vatesfr/xen-orchestra/pull/6979))
+
+### Released packages
+
+- xo-vmdk-to-vhd 2.5.6
+- xo-server-auth-github 0.3.1
+- xo-server-auth-google 0.3.1
+- xo-server-netbox 1.3.0
+- vhd-lib 4.6.1
+- @xen-orchestra/xapi 3.2.0
+- @xen-orchestra/backups 0.43.0
+- @xen-orchestra/backups-cli 1.0.13
+- @xen-orchestra/mixins 0.13.0
+- @xen-orchestra/proxy 0.26.35
+- xo-server 5.124.0
+- xo-server-backup-reports 0.17.4
+- xo-web 5.126.0
+
+## **5.86.1** (2023-09-07)
 
 ### Bug fixes
 
@@ -64,8 +244,6 @@
 - xo-web 5.124.0
 
 ## **5.85.0** (2023-07-31)
-
-<img id="stable" src="https://badgen.net/badge/channel/stable/green" alt="Channel: stable" />
 
 ### Highlights
 

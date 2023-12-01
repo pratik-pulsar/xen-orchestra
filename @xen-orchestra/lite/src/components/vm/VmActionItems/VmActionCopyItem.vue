@@ -1,6 +1,9 @@
 <template>
   <MenuItem
-    v-tooltip="!areAllSelectedVmsHalted && $t('selected-vms-in-execution')"
+    v-tooltip="
+      !areAllSelectedVmsHalted &&
+      $t(isSingleAction ? 'vm-is-running' : 'selected-vms-in-execution')
+    "
     :busy="areSomeSelectedVmsCloning"
     :disabled="isDisabled"
     :icon="faCopy"
@@ -14,7 +17,7 @@
 import MenuItem from "@/components/menu/MenuItem.vue";
 import { useVmCollection } from "@/stores/xen-api/vm.store";
 import { vTooltip } from "@/directives/tooltip.directive";
-import { POWER_STATE, VM_OPERATION } from "@/libs/xen-api/xen-api.utils";
+import { VM_POWER_STATE, VM_OPERATION } from "@/libs/xen-api/xen-api.enums";
 import type { XenApiVm } from "@/libs/xen-api/xen-api.types";
 import { useXenApiStore } from "@/stores/xen-api.store";
 import { faCopy } from "@fortawesome/free-solid-svg-icons";
@@ -22,6 +25,7 @@ import { computed } from "vue";
 
 const props = defineProps<{
   selectedRefs: XenApiVm["$ref"][];
+  isSingleAction?: boolean;
 }>();
 
 const { getByOpaqueRef, isOperationPending } = useVmCollection();
@@ -36,7 +40,7 @@ const areAllSelectedVmsHalted = computed(
   () =>
     selectedVms.value.length > 0 &&
     selectedVms.value.every(
-      (selectedVm) => selectedVm.power_state === POWER_STATE.HALTED
+      (selectedVm) => selectedVm.power_state === VM_POWER_STATE.HALTED
     )
 );
 

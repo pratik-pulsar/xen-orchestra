@@ -68,6 +68,7 @@ Usage:
 
     Examples:
       xo-cli rest del tasks/<task id>
+      xo-cli rest del vms/<vm id>/tags/<tag>
 
   xo-cli rest get <collection> [fields=<fields>] [filter=<filter>] [limit=<limit>]
     List objects in a REST API collection.
@@ -94,8 +95,14 @@ Usage:
       xo-cli rest get tasks filter='status:pending'
       xo-cli rest get vms fields=name_label,power_state
 
-  xo-cli rest get <object> [wait | wait=result]
+  xo-cli rest get [--output <file>] <object> [wait | wait=result]
     Show an object from the REST API.
+
+    --output <file>
+      If specified, the response will be saved in <file> instead of being parsed.
+
+      If <file> ends with `/`, it will be considered as the directory in which
+      to save the response, and the filename will be last part of the <object> path.
 
     <object>
       Full path of the object to show
@@ -134,6 +141,18 @@ Usage:
     Examples:
       xo-cli rest post tasks/<task id>/actions/abort
       xo-cli rest post vms/<VM UUID>/actions/snapshot name_label='My snapshot'
+
+  xo-cli rest put <collection>/<item id> <name>=<value>...
+    Put a item in a collection
+
+    <collection>/<item id>
+      Full path of the item to add
+
+    <name>=<value>...
+      Properties of the item
+
+    Examples:
+      xo-cli rest put vms/<vm id>/tags/<tag>
 ```
 
 #### Register your XO instance

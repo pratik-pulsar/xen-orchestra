@@ -507,8 +507,8 @@ export default decorate([
             type === 'VM'
               ? get(() => vms[task.data.id].name_label)
               : type === 'pool'
-              ? get(() => pools[task.data.id].name_label)
-              : 'xo'
+                ? get(() => pools[task.data.id].name_label)
+                : 'xo'
 
           if (task.tasks !== undefined) {
             const subTaskWithIsFull = task.tasks.find(({ data = {} }) => data.isFull !== undefined)
@@ -533,12 +533,11 @@ export default decorate([
       },
       optionRenderer:
         ({ countByStatus }) =>
-        ({ label, value }) =>
-          (
-            <span>
-              {_(label)} ({countByStatus[value] || 0})
-            </span>
-          ),
+        ({ label, value }) => (
+          <span>
+            {_(label)} ({countByStatus[value] || 0})
+          </span>
+        ),
       countByStatus: ({ preFilteredTasksLogs }) => ({
         all: get(() => preFilteredTasksLogs.length),
         ...countBy(preFilteredTasksLogs, 'status'),

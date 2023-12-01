@@ -1,5 +1,6 @@
 import _ from 'intl'
 import ActionButton from 'action-button'
+import BulkIcons from 'bulk-icons'
 import Component from 'base-component'
 import Copiable from 'copiable'
 import decorate from 'apply-decorators'
@@ -33,6 +34,8 @@ import {
   isHyperThreadingEnabledHost,
   isNetDataInstalledOnHost,
   getPlugin,
+  getSmartctlHealth,
+  getSmartctlInformation,
   restartHost,
   setControlDomainMemory,
   setHostsMultipathing,
@@ -62,10 +65,18 @@ const SCHED_GRAN_TYPE_OPTIONS = [
   },
 ]
 
+const downloadLogs = async uuid => {
+  await confirm({
+    title: _('hostDownloadLogs'),
+    body: _('hostDownloadLogsContainEntireHostLogs'),
+  })
+  window.open(`./rest/v0/hosts/${uuid}/logs.tar`)
+}
+
 const forceReboot = host => restartHost(host, true)
 
 const smartReboot = ALLOW_SMART_REBOOT
-  ? host => restartHost(host, false, true) // don't force, suspend resident VMs
+  ? host => restartHost(host, false, true, false, false) // don't force, suspend resident VMs, don't bypass blocked suspend, don't bypass current VM check
   : () => {}
 
 const formatPack = ({ name, author, description, version }, key) => (
@@ -153,17 +164,36 @@ MultipathableSrs.propTypes = {
 })
 export default class extends Component {
   async componentDidMount() {
+    const { host } = this.props
     const plugin = await getPlugin('netdata')
     const isNetDataPluginCorrectlySet = plugin !== undefined && plugin.loaded
     this.setState({ isNetDataPluginCorrectlySet })
     if (isNetDataPluginCorrectlySet) {
       this.setState({
-        isNetDataPluginInstalledOnHost: await isNetDataInstalledOnHost(this.props.host),
+        isNetDataPluginInstalledOnHost: await isNetDataInstalledOnHost(host),
       })
     }
 
+    const smartctlHealth = await getSmartctlHealth(host)
+    const isSmartctlHealthEnabled = smartctlHealth !== null
+    const smartctlUnhealthyDevices = isSmartctlHealthEnabled
+      ? Object.keys(smartctlHealth).filter(deviceName => smartctlHealth[deviceName] !== 'PASSED')
+      : undefined
+
+    let unhealthyDevicesAlerts
+    if (smartctlUnhealthyDevices?.length > 0) {
+      const unhealthyDeviceInformations = await getSmartctlInformation(host, smartctlUnhealthyDevices)
+      unhealthyDevicesAlerts = map(unhealthyDeviceInformations, (value, key) => ({
+        level: 'warning',
+        render: <pre>{_('keyValue', { key, value: JSON.stringify(value, null, 2) })}</pre>,
+      }))
+    }
+
     this.setState({
-      isHtEnabled: await isHyperThreadingEnabledHost(this.props.host),
+      isHtEnabled: await isHyperThreadingEnabledHost(host).catch(() => null),
+      isSmartctlHealthEnabled,
+      smartctlUnhealthyDevices,
+      unhealthyDevicesAlerts,
     })
   }
 
@@ -225,7 +255,14 @@ export default class extends Component {
 
   render() {
     const { controlDomain, host, pcis, pgpus, schedGran } = this.props
-    const { isHtEnabled, isNetDataPluginInstalledOnHost, isNetDataPluginCorrectlySet } = this.state
+    const {
+      isHtEnabled,
+      isNetDataPluginInstalledOnHost,
+      isNetDataPluginCorrectlySet,
+      isSmartctlHealthEnabled,
+      unhealthyDevicesAlerts,
+      smartctlUnhealthyDevices,
+    } = this.state
 
     const _isXcpNgHost = host.productBrand === 'XCP-ng'
 
@@ -259,6 +296,13 @@ export default class extends Component {
             ) : (
               telemetryButton
             )}
+            <TabButton
+              btnStyle='warning'
+              handler={downloadLogs}
+              handlerParam={host.uuid}
+              icon='logs'
+              labelId='hostDownloadLogs'
+            />
             {host.power_state === 'Running' && [
               <TabButton
                 key='smart-reboot'
@@ -481,8 +525,8 @@ export default class extends Component {
                     {isHtEnabled === null
                       ? _('hyperThreadingNotAvailable')
                       : isHtEnabled
-                      ? _('stateEnabled')
-                      : _('stateDisabled')}
+                        ? _('stateEnabled')
+                        : _('stateDisabled')}
                   </td>
                 </tr>
                 <tr>
@@ -495,6 +539,21 @@ export default class extends Component {
                   <th>{_('hostBiosinfo')}</th>
                   <td>
                     {host.bios_strings['bios-vendor']} ({host.bios_strings['bios-version']})
+                  </td>
+                </tr>
+                <tr>
+                  <th>{_('systemDisksHealth')}</th>
+                  <td>
+                    {isSmartctlHealthEnabled !== undefined &&
+                      (isSmartctlHealthEnabled ? (
+                        smartctlUnhealthyDevices?.length === 0 ? (
+                          _('disksSystemHealthy')
+                        ) : (
+                          <BulkIcons alerts={unhealthyDevicesAlerts ?? []} />
+                        )
+                      ) : (
+                        _('smartctlPluginNotInstalled')
+                      ))}
                   </td>
                 </tr>
               </tbody>

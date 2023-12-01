@@ -35,6 +35,16 @@ import Collection, { ModelAlreadyExists } from '../collection.mjs'
 const VERSION = '20170905'
 
 export default class Redis extends Collection {
+  // Prepare a record before storing in the database
+  //
+  // Input object can be mutated or a new one returned
+  _serialize(record) {}
+
+  // Clean a record after being fetched from the database
+  //
+  // Input object can be mutated or a new one returned
+  _unserialize(record) {}
+
   constructor({ connection, indexes = [], namespace }) {
     super()
 
@@ -85,8 +95,8 @@ export default class Redis extends Collection {
     )
 
     const idsIndex = `${prefix}_ids`
-    await asyncMapSettled(redis.sMembers(idsIndex), id =>
-      redis.hGetAll(`${prefix}:${id}`).then(values =>
+    await asyncMapSettled(redis.sMembers(idsIndex), id => {
+      return this.#get(`${prefix}:${id}`).then(values =>
         values == null
           ? redis.sRem(idsIndex, id) // entry no longer exists
           : asyncMapSettled(indexes, index => {
@@ -96,21 +106,22 @@ export default class Redis extends Collection {
               }
             })
       )
-    )
+    })
   }
 
   _extract(ids) {
     const prefix = this.prefix + ':'
-    const { redis } = this
 
     const models = []
     return Promise.all(
       map(ids, id => {
-        return redis.hGetAll(prefix + id).then(model => {
+        return this.#get(prefix + id).then(model => {
           // If empty, consider it a no match.
           if (isEmpty(model)) {
             return
           }
+
+          model = this._unserialize(model) ?? model
 
           // Mix the identifier in.
           model.id = id
@@ -129,6 +140,12 @@ export default class Redis extends Collection {
 
     return Promise.all(
       map(models, async model => {
+        // don't mutate param
+        model = JSON.parse(JSON.stringify(model))
+
+        // allow specific serialization
+        model = this._serialize(model) ?? model
+
         // Generate a new identifier if necessary.
         if (model.id === undefined) {
           model.id = generateUuid()
@@ -144,7 +161,7 @@ export default class Redis extends Collection {
 
           // remove the previous values from indexes
           if (indexes.length !== 0) {
-            const previous = await redis.hGetAll(`${prefix}:${id}`)
+            const previous = await this.#get(`${prefix}:${id}`)
             await asyncMapSettled(indexes, index => {
               const value = previous[index]
               if (value !== undefined) {
@@ -184,6 +201,22 @@ export default class Redis extends Collection {
     )
   }
 
+  async #get(key) {
+    const { redis } = this
+
+    let model
+    try {
+      model = await redis.hGetAll(key)
+    } catch (error) {
+      if (!error.message.startsWith('WRONGTYPE')) {
+        throw error
+      }
+      model = await redis.get(key).then(JSON.parse)
+    }
+
+    return model
+  }
+
   _get(properties) {
     const { prefix, redis } = this
 
@@ -209,7 +242,7 @@ export default class Redis extends Collection {
     }
 
     const keys = map(properties, (value, index) => `${prefix}_${index}:${String(value).toLowerCase()}`)
-    return redis.sInter(...keys).then(ids => this._extract(ids))
+    return redis.sInter(keys).then(ids => this._extract(ids))
   }
 
   _remove(ids) {
@@ -227,7 +260,7 @@ export default class Redis extends Collection {
       promise = Promise.all([
         promise,
         asyncMapSettled(ids, id =>
-          redis.hGetAll(`${prefix}:${id}`).then(
+          this.#get(`${prefix}:${id}`).then(
             values =>
               values != null &&
               asyncMapSettled(indexes, index => {

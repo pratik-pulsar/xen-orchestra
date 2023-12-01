@@ -76,6 +76,8 @@ defaultSignInPage = '/signin'
 throttlingDelay = '2 seconds'
 
 [backups]
+autoUnmountPartitionDelay = '24h'
+
 disableMergeWorker = false
 
 # Mode to use for newly created backup directories
@@ -172,6 +174,7 @@ ignoreVmSnapshotResources = false
 restartHostTimeout = '20 minutes'
 maxUncoalescedVdis = 1
 vdiExportConcurrency = 12
+vmEvacuationConcurrency = 3
 vmExportConcurrency = 2
 vmSnapshotConcurrency = 2
 

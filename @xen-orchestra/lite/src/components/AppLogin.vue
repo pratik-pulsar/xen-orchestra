@@ -2,23 +2,34 @@
   <div class="app-login form-container">
     <form @submit.prevent="handleSubmit">
       <img alt="XO Lite" src="../assets/logo-title.svg" />
-      <FormInputWrapper>
-        <FormInput v-model="login" name="login" readonly type="text" />
-      </FormInputWrapper>
-      <FormInputWrapper :error="error">
+      <p v-if="isHostIsSlaveErr(error)" class="error">
+        <UiIcon :icon="faExclamationCircle" />
+        {{ $t("login-only-on-master") }}
+        <a :href="masterUrl.href">{{ masterUrl.hostname }}</a>
+      </p>
+      <template v-else>
+        <FormInputWrapper>
+          <FormInput v-model="login" name="login" readonly type="text" />
+        </FormInputWrapper>
         <FormInput
           name="password"
           ref="passwordRef"
           type="password"
           v-model="password"
+          :class="{ error: isInvalidPassword }"
           :placeholder="$t('password')"
           :readonly="isConnecting"
           required
         />
-      </FormInputWrapper>
-      <UiButton type="submit" :busy="isConnecting">
-        {{ $t("login") }}
-      </UiButton>
+        <LoginError :error="error" />
+        <label class="remember-me-label">
+          <FormCheckbox v-model="rememberMe" />
+          {{ $t("keep-me-logged") }}
+        </label>
+        <UiButton type="submit" :busy="isConnecting">
+          {{ $t("login") }}
+        </UiButton>
+      </template>
     </form>
   </div>
 </template>
@@ -28,9 +39,16 @@ import { usePageTitleStore } from "@/stores/page-title.store";
 import { storeToRefs } from "pinia";
 import { onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { useLocalStorage, whenever } from "@vueuse/core";
+
+import FormCheckbox from "@/components/form/FormCheckbox.vue";
 import FormInput from "@/components/form/FormInput.vue";
 import FormInputWrapper from "@/components/form/FormInputWrapper.vue";
+import LoginError from "@/components/LoginError.vue";
 import UiButton from "@/components/ui/UiButton.vue";
+import UiIcon from "@/components/ui/icon/UiIcon.vue";
+import type { XenApiError } from "@/libs/xen-api/xen-api.types";
+import { faExclamationCircle } from "@fortawesome/free-solid-svg-icons";
 import { useXenApiStore } from "@/stores/xen-api.store";
 
 const { t } = useI18n();
@@ -39,15 +57,22 @@ const xenApiStore = useXenApiStore();
 const { isConnecting } = storeToRefs(xenApiStore);
 const login = ref("root");
 const password = ref("");
-const error = ref<string>();
+const error = ref<XenApiError>();
 const passwordRef = ref<InstanceType<typeof FormInput>>();
 const isInvalidPassword = ref(false);
+const masterUrl = ref(new URL(window.origin));
+const rememberMe = useLocalStorage("rememberMe", false);
 
 const focusPasswordInput = () => passwordRef.value?.focus();
+const isHostIsSlaveErr = (err: XenApiError | undefined) =>
+  err?.message === "HOST_IS_SLAVE";
 
 onMounted(() => {
-  xenApiStore.reconnect();
-  focusPasswordInput();
+  if (rememberMe.value) {
+    xenApiStore.reconnect();
+  } else {
+    focusPasswordInput();
+  }
 });
 
 watch(password, () => {
@@ -55,23 +80,38 @@ watch(password, () => {
   error.value = undefined;
 });
 
+whenever(
+  () => isHostIsSlaveErr(error.value),
+  () => (masterUrl.value.hostname = error.value!.data)
+);
+
 async function handleSubmit() {
   try {
     await xenApiStore.connect(login.value, password.value);
-  } catch (err) {
-    if ((err as Error).message === "SESSION_AUTHENTICATION_FAILED") {
+  } catch (err: any) {
+    if (err.message === "SESSION_AUTHENTICATION_FAILED") {
       focusPasswordInput();
       isInvalidPassword.value = true;
-      error.value = t("password-invalid");
     } else {
-      error.value = t("error-occurred");
-      console.error(err);
+      console.error(error);
     }
+
+    error.value = err;
   }
 }
 </script>
 
 <style lang="postcss" scoped>
+.remember-me-label {
+  cursor: pointer;
+  display: flex;
+  margin: 1rem;
+  width: fit-content;
+  & .form-checkbox {
+    margin: auto 1rem auto auto;
+  }
+}
+
 .form-container {
   display: flex;
   align-items: center;
@@ -87,12 +127,15 @@ form {
   font-size: 2rem;
   min-width: 30em;
   max-width: 100%;
-  align-items: center;
   flex-direction: column;
   justify-content: center;
   margin: 0 auto;
   padding: 8.5rem;
   background-color: var(--background-color-secondary);
+
+  .error {
+    color: var(--color-red-vates-base);
+  }
 }
 
 h1 {
@@ -104,7 +147,7 @@ h1 {
 
 img {
   width: 40rem;
-  margin-bottom: 5rem;
+  margin: auto auto 5rem auto;
 }
 
 input {
@@ -118,6 +161,6 @@ input {
 }
 
 button {
-  margin-top: 2rem;
+  margin: 2rem auto;
 }
 </style>
