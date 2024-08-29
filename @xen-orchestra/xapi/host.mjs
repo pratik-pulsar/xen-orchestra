@@ -5,12 +5,19 @@ import { defer } from 'golike-defer'
 import { incorrectState, operationFailed } from 'xo-common/api-errors.js'
 
 import { getCurrentVmUuid } from './_XenStore.mjs'
+import {
+  addIpmiSensorDataType,
+  containsDigit,
+  IPMI_SENSOR_DATA_TYPE,
+  IPMI_SENSOR_REGEX_BY_DATA_TYPE_BY_SUPPORTED_PRODUCT_NAME,
+  isRelevantIpmiSensor,
+} from './host/_ipmi.mjs'
 
 const waitAgentRestart = (xapi, hostRef, prevAgentStartTime) =>
   new Promise(resolve => {
     // even though the ref could change in case of pool master restart, tests show it stays the same
     const stopWatch = xapi.watchObject(hostRef, host => {
-      if (+host.other_config.agent_start_time > prevAgentStartTime) {
+      if (+host.other_config.agent_start_time > prevAgentStartTime && host.enabled) {
         stopWatch()
         resolve()
       }
@@ -34,6 +41,11 @@ class Host {
    * @param {string} ref - Opaque reference of the host
    */
   async smartReboot($defer, ref, bypassBlockedSuspend = false, bypassCurrentVmCheck = false) {
+    await this.callAsync('host.disable', ref)
+
+    // host may have been re-enabled already, this is not an problem
+    $defer.onFailure(() => this.callAsync('host.enable', ref))
+
     let currentVmRef
     try {
       currentVmRef = await this.call('VM.get_by_uuid', await getCurrentVmUuid())
@@ -66,14 +78,15 @@ class Host {
     })
 
     const suspendedVms = []
-    if (await this.getField('host', ref, 'enabled')) {
-      await this.callAsync('host.disable', ref)
-      $defer(async () => {
-        await this.callAsync('host.enable', ref)
-        // Resuming VMs should occur after host enabling to avoid triggering a 'NO_HOSTS_AVAILABLE' error
-        return asyncEach(suspendedVms, vmRef => this.callAsync('VM.resume', vmRef, false, false))
-      })
-    }
+
+    // Resuming VMs should occur after host enabling to avoid triggering a 'NO_HOSTS_AVAILABLE' error
+    //
+    // The defers are running in reverse order.
+    $defer(() => asyncEach(suspendedVms, vmRef => this.callAsync('VM.resume', vmRef, false, false)))
+    $defer.onFailure(() =>
+      // if the host has not been rebooted, it might still be disabled and need to be enabled manually
+      this.callAsync('host.enable', ref)
+    )
 
     await asyncEach(
       residentVmRefs,
@@ -113,6 +126,41 @@ class Host {
     const agentStartTime = +(await this.getField('host', ref, 'other_config')).agent_start_time
     await this.callAsync('host.reboot', ref)
     await waitAgentRestart(this, ref, agentStartTime)
+  }
+
+  async getIpmiSensors(ref, { cache } = {}) {
+    const productName = (await this.call(cache, 'host.get_bios_strings', ref))['system-product-name']?.toLowerCase()
+
+    if (IPMI_SENSOR_REGEX_BY_DATA_TYPE_BY_SUPPORTED_PRODUCT_NAME[productName] === undefined) {
+      return {}
+    }
+
+    const callSensorPlugin = fn => this.call(cache, 'host.call_plugin', ref, '2crsi-sensors.py', fn, {})
+    // https://github.com/AtaxyaNetwork/xcp-ng-xapi-plugins/tree/ipmi-sensors?tab=readme-ov-file#ipmi-sensors-parser
+    const [stringifiedIpmiSensors, ip] = await Promise.all([callSensorPlugin('get_info'), callSensorPlugin('get_ip')])
+    const ipmiSensors = JSON.parse(stringifiedIpmiSensors)
+
+    const ipmiSensorsByDataType = {}
+    for (const ipmiSensor of ipmiSensors) {
+      if (!isRelevantIpmiSensor(ipmiSensor, productName)) {
+        continue
+      }
+
+      addIpmiSensorDataType(ipmiSensor, productName)
+      const dataType = ipmiSensor.dataType
+
+      if (ipmiSensorsByDataType[dataType] === undefined) {
+        ipmiSensorsByDataType[dataType] = containsDigit(ipmiSensor.Name) ? [] : ipmiSensor
+      }
+
+      if (Array.isArray(ipmiSensorsByDataType[ipmiSensor.dataType])) {
+        ipmiSensorsByDataType[dataType].push(ipmiSensor)
+      }
+    }
+
+    ipmiSensorsByDataType[IPMI_SENSOR_DATA_TYPE.generalInfo] = { ip }
+
+    return ipmiSensorsByDataType
   }
 }
 export default Host

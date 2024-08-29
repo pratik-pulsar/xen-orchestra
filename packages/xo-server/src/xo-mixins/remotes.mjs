@@ -1,32 +1,46 @@
 import asyncMapSettled from '@xen-orchestra/async-map/legacy.js'
+import Obfuscate from '@vates/obfuscate'
 import { basename } from 'path'
+import { createLogger } from '@xen-orchestra/log'
 import { format, parse } from 'xo-remote-parser'
-import {
-  DEFAULT_ENCRYPTION_ALGORITHM,
-  getHandler,
-  isLegacyEncryptionAlgorithm,
-  UNENCRYPTED_ALGORITHM,
-} from '@xen-orchestra/fs'
+import { DEFAULT_ENCRYPTION_ALGORITHM, getHandler, isLegacyEncryptionAlgorithm } from '@xen-orchestra/fs'
 import { ignoreErrors, timeout } from 'promise-toolbox'
 import { invalidParameters, noSuchObject } from 'xo-common/api-errors.js'
 import { synchronized } from 'decorator-synchronized'
 
-import * as sensitiveValues from '../sensitive-values.mjs'
 import patch from '../patch.mjs'
 import { Remotes } from '../models/remote.mjs'
 
 // ===================================================================
 
+const { warn } = createLogger('xo:mixins:remotes')
+
 const obfuscateRemote = ({ url, ...remote }) => {
   const parsedUrl = parse(url)
-  remote.url = format(sensitiveValues.obfuscate(parsedUrl))
+  remote.url = format(Obfuscate.obfuscate(parsedUrl))
   return remote
 }
 
-function validatePath(url) {
-  const { path } = parse(url)
+// these properties should be defined on the remote object itself and not as
+// part of the remote URL
+//
+// there is a bug somewhere that keep putting them into the URL, this list
+// is here to help track it
+const INVALID_URL_PARAMS = ['benchmarks', 'id', 'info', 'name', 'proxy', 'enabled', 'error', 'url']
+
+function validateUrl(url) {
+  const parsedUrl = parse(url)
+
+  const { path } = parsedUrl
   if (path !== undefined && basename(path) === 'xo-vm-backups') {
     throw invalidParameters('remote url should not end with xo-vm-backups')
+  }
+
+  for (const param of INVALID_URL_PARAMS) {
+    if (Object.hasOwn(parsedUrl, param)) {
+      // log with stack trace
+      warn(new Error('invalid remote URL param ' + param))
+    }
   }
 }
 
@@ -47,7 +61,7 @@ export default class {
       app.addConfigManager(
         'remotes',
         () => this._remotes.get(),
-        remotes => Promise.all(remotes.map(remote => this._remotes.update(remote)))
+        remotes => this._remotes.update(remotes)
       )
     })
     app.hooks.on('start', async () => {
@@ -143,7 +157,7 @@ export default class {
       let encryption
 
       if (this._handlers[remote.id] !== undefined) {
-        const algorithm = this._handlers[remote.id]._encryptor?.algorithm ?? UNENCRYPTED_ALGORITHM
+        const algorithm = this._handlers[remote.id].encryptionAlgorithm
         encryption = {
           algorithm,
           isLegacy: isLegacyEncryptionAlgorithm(algorithm),
@@ -182,6 +196,22 @@ export default class {
     if (remote === undefined) {
       throw noSuchObject(id, 'remote')
     }
+
+    const parsedUrl = parse(remote.url)
+    let fixed = false
+    for (const param of INVALID_URL_PARAMS) {
+      if (Object.hasOwn(parsedUrl, param)) {
+        // delete the value to trace its real origin when it's added back
+        // with `updateRemote()`
+        delete parsedUrl[param]
+        fixed = true
+      }
+    }
+    if (fixed) {
+      remote.url = format(parsedUrl)
+      this._remotes.update(remote).catch(warn)
+    }
+
     return remote
   }
 
@@ -202,7 +232,7 @@ export default class {
   }
 
   async createRemote({ name, options, proxy, url }) {
-    validatePath(url)
+    validateUrl(url)
 
     const params = {
       enabled: false,
@@ -219,6 +249,10 @@ export default class {
   }
 
   updateRemote(id, { enabled, name, options, proxy, url }) {
+    if (url !== undefined) {
+      validateUrl(url)
+    }
+
     const handlers = this._handlers
     const handler = handlers[id]
     if (handler !== undefined) {
@@ -238,14 +272,14 @@ export default class {
   @synchronized()
   async _updateRemote(id, { url, ...props }) {
     if (url !== undefined) {
-      validatePath(url)
+      validateUrl(url)
     }
 
     const remote = await this._getRemote(id)
 
     // url is handled separately to take care of obfuscated values
     if (typeof url === 'string') {
-      remote.url = format(sensitiveValues.merge(parse(url), parse(remote.url)))
+      remote.url = format(Obfuscate.merge(parse(url), parse(remote.url)))
     }
 
     patch(remote, props)

@@ -2,6 +2,45 @@
 
 ## **next**
 
+- [Settings] Default UI theme is now _auto_ instead of _dark_
+
+## **0.2.7** (2024-07-31)
+
+- [Pool/Dashboard] Add missing translations for hosts and VMs statuses (PR [#7744](https://github.com/vatesfr/xen-orchestra/pull/7744))
+- [i18n] Add Persian translation (based on the contribution made by [@Jokar-xen](https://github.com/Jokar-xen)) (PR [#7775](https://github.com/vatesfr/xen-orchestra/pull/7775))
+- [Access XOA] Support `xo-server`'s' setting `http.publicUrl` to redirect to a custom URL when "Access XOA" button is clicked in XO Lite [Forum#9392](https://xcp-ng.org/forum/topic/9392) (PR [#7849](https://github.com/vatesfr/xen-orchestra/pull/7849))
+
+## **0.2.3** (2024-05-31)
+
+- [Pool/Dashboard] In the `Storage usage` card, DVDs are no longer taken into account (PR [#7670](https://github.com/vatesfr/xen-orchestra/pull/7670))
+- [Header] Add link to XOA when XOA is detected on the pool (PR [#7679](https://github.com/vatesfr/xen-orchestra/pull/7679))
+- Add german translation (based on the contribution made by [@borzel](https://github.com/borzel)) (PR [#7686](https://github.com/vatesfr/xen-orchestra/pull/7686))
+
+## **0.2.2** (2024-04-30)
+
+- [Tree view] Update tree view with new components from design system (PR [#7531](https://github.com/vatesfr/xen-orchestra/pull/7531))
+
+## **0.2.1** (2024-04-02)
+
+- Fix duplicate consoles after failed connection (PR [#7505](https://github.com/vatesfr/xen-orchestra/pull/7505))
+- [Tabs] Disable navigation to in-progress views (PR [7482](https://github.com/vatesfr/xen-orchestra/pull/7482))
+
+## **0.2.0** (2024-02-29)
+
+- Fix Typescript typings errors when running `yarn type-check` command (PR [#7278](https://github.com/vatesfr/xen-orchestra/pull/7278))
+- Introduce PWA Json Manifest (PR [#7291](https://github.com/vatesfr/xen-orchestra/pull/7291))
+
+## **0.1.7** (2023-12-28)
+
+- [VM/Action] Ability to migrate a VM from its view (PR [#7164](https://github.com/vatesfr/xen-orchestra/pull/7164))
+- Ability to override host address with `master` URL query param (PR [#7187](https://github.com/vatesfr/xen-orchestra/pull/7187))
+- Added tooltip on CPU provisioning warning icon (PR [#7223](https://github.com/vatesfr/xen-orchestra/pull/7223))
+- Add indeterminate state on FormToggle component (PR [#7230](https://github.com/vatesfr/xen-orchestra/pull/7230))
+- Add new UiStatusPanel component (PR [#7227](https://github.com/vatesfr/xen-orchestra/pull/7227))
+- XOA quick deploy (PR [#7245](https://github.com/vatesfr/xen-orchestra/pull/7245))
+- Fix infinite loader when no stats on pool dashboard (PR [#7236](https://github.com/vatesfr/xen-orchestra/pull/7236))
+- [Tree view] Display VMs count (PR [#7185](https://github.com/vatesfr/xen-orchestra/pull/7185))
+
 ## **0.1.6** (2023-11-30)
 
 - Explicit error if users attempt to connect from a slave host (PR [#7110](https://github.com/vatesfr/xen-orchestra/pull/7110))

@@ -86,10 +86,27 @@ systemctl restart xo-server.service
 
 ## Redis server
 
-By default, XO-server will try to contact Redis server on `localhost`, with the port `6379`. But you can define whatever you want:
+For advanced usage, you can customize the way XO connect to Redis:
 
 ```toml
-uri = 'tcp://db:password@hostname:port'
+# Connection to the Redis server.
+[redis]
+# Unix sockets can be used
+#
+# Default: undefined
+#socket = '/var/run/redis/redis.sock'
+
+# Syntax: redis://[db[:password]@]hostname[:port][/db-number]
+#
+# Default: redis://localhost:6379/0
+#uri = 'redis://redis.company.lan/42'
+
+# List of aliased commands.
+#
+# See http://redis.io/topics/security#disabling-of-specific-commands
+#renameCommands:
+#  del = '3dda29ad-3015-44f9-b13b-fa570de92489'
+#  srem = '3fd758c9-5610-4e9d-a058-dbf4cb6d8bf0'
 ```
 
 ## Proxy for updates and patches
@@ -110,13 +127,25 @@ You can add this at the end of your config file:
 httpProxy = 'http://username:password@proxyAddress:port'
 ```
 
-## Log file
-
-On XOA, the log file for XO-server is in `/var/log/syslog`. It contains all the server information returned and can be a real help when you have trouble.
-
 ## Reverse proxy
 
 If you don't want to have Xen Orchestra exposed directly outside, or just integrating it with your existing infrastructure, you can use a Reverse Proxy.
+
+First of all you need to allow Xen Orchestra to use `X-Forwarded-*` headers to determine the IP addresses of clients:
+
+```toml
+[http]
+# Accepted values for this setting:
+# - false (default): do not use the headers
+# - true: always use the headers
+# - a list of trusted addresses: the headers will be used only if the connection
+#   is coming from one of these addresses
+#
+# More info about the accepted values: https://www.npmjs.com/package/proxy-addr?activeTab=readme#proxyaddrreq-trust
+#
+# > Note: X-Forwarded-* headers are easily spoofed and the detected IP addresses are unreliable.
+useForwardedHeaders = ['127.0.0.1']
+```
 
 ### Apache
 

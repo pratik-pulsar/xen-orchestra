@@ -27,11 +27,15 @@ import {
   detachHost,
   disableHost,
   editHost,
+  editPusb,
   enableAdvancedLiveTelemetry,
   enableHost,
   forgetHost,
+  hidePcis,
   installSupplementalPack,
   isHyperThreadingEnabledHost,
+  isPciHidden,
+  isPciPassthroughAvailable,
   isNetDataInstalledOnHost,
   getPlugin,
   getSmartctlHealth,
@@ -45,10 +49,108 @@ import {
   toggleMaintenanceMode,
 } from 'xo'
 
+import SortedTable from 'sorted-table'
 import { installCertificate } from './install-certificate'
 
 const ALLOW_INSTALL_SUPP_PACK = process.env.XOA_PLAN > 1
 const ALLOW_SMART_REBOOT = xoaPlans.CURRENT.value >= xoaPlans.PREMIUM.value
+const PUSBS_COLUMNS = [
+  {
+    name: _('vendorId'),
+    itemRenderer: pusb => pusb.vendorId,
+  },
+  {
+    name: _('description'),
+    itemRenderer: pusb => pusb.description,
+  },
+  {
+    name: _('version'),
+    itemRenderer: pusb => pusb.version,
+  },
+  {
+    name: _('labelSpeed'),
+    itemRenderer: pusb => pusb.speed,
+  },
+  {
+    name: _('enabled'),
+    itemRenderer: pusb => {
+      const _editPusb = value => editPusb(pusb, { enabled: value })
+      return <Toggle value={pusb.passthroughEnabled} onChange={_editPusb} />
+    },
+  },
+]
+const PCIS_COLUMNS = [
+  {
+    name: _('id'),
+    itemRenderer: pci => {
+      const { uuid } = pci
+      return (
+        <Copiable data={uuid} tagName='p'>
+          {uuid.slice(4, 8)}
+        </Copiable>
+      )
+    },
+  },
+  {
+    default: true,
+    name: _('pciId'),
+    itemRenderer: pci => pci.pci_id,
+    sortCriteria: pci => pci.pci_id,
+  },
+  {
+    name: _('className'),
+    itemRenderer: pci => pci.class_name,
+    sortCriteria: pci => pci.class_name,
+  },
+  {
+    name: _('deviceName'),
+    itemRenderer: pci => pci.device_name,
+    sortCriteria: pci => pci.device_name,
+  },
+  {
+    name: _('enabled'),
+    itemRenderer: (pci, { pciStateById, isPciPassthroughAvailable }) => {
+      if (pciStateById === undefined) {
+        return <Icon icon='loading' />
+      }
+
+      if (!isPciPassthroughAvailable) {
+        return (
+          <Tooltip content={_('onlyAvailableXcp8.3OrHigher')}>
+            <Toggle disabled />
+          </Tooltip>
+        )
+      }
+
+      const { error, isHidden } = pciStateById[pci.id]
+      if (error !== undefined) {
+        return (
+          <Tooltip content={error}>
+            <Icon icon='alarm' color='text-danger' />
+          </Tooltip>
+        )
+      }
+
+      const _hidePcis = value => hidePcis([pci], value)
+      return <Toggle value={isHidden} onChange={_hidePcis} />
+    },
+    sortCriteria: (pci, { pciStateById }) => pciStateById?.[pci.id]?.isHidden,
+  },
+]
+const PCIS_ACTIONS = [
+  {
+    handler: pcis => hidePcis(pcis, false),
+    icon: 'toggle-off',
+    label: _('disable'),
+    level: 'primary',
+  },
+  {
+    handler: pcis => hidePcis(pcis, true),
+    icon: 'toggle-on',
+    label: _('enable'),
+    level: 'primary',
+  },
+]
 
 const SCHED_GRAN_TYPE_OPTIONS = [
   {
@@ -70,7 +172,7 @@ const downloadLogs = async uuid => {
     title: _('hostDownloadLogs'),
     body: _('hostDownloadLogsContainEntireHostLogs'),
   })
-  window.open(`./rest/v0/hosts/${uuid}/logs.tar`)
+  window.open(`./rest/v0/hosts/${uuid}/logs.tgz`)
 }
 
 const forceReboot = host => restartHost(host, true)
@@ -154,12 +256,23 @@ MultipathableSrs.propTypes = {
     .pick((_, { host }) => host.$PGPUs)
     .sort()
 
-  const getPcis = createGetObjectsOfType('PCI').pick(createSelector(getPgpus, pgpus => map(pgpus, 'pci')))
+  const getPcis = createGetObjectsOfType('PCI').filter(
+    (_, { host }) =>
+      pci =>
+        pci.$host === host.id
+  )
+
+  const getPusbs = createGetObjectsOfType('PUSB').filter(
+    (_, { host }) =>
+      pusb =>
+        pusb.host === host.id
+  )
 
   return {
     controlDomain: getControlDomain,
     pcis: getPcis,
     pgpus: getPgpus,
+    pusbs: getPusbs,
   }
 })
 export default class extends Component {
@@ -174,8 +287,8 @@ export default class extends Component {
       })
     }
 
-    const smartctlHealth = await getSmartctlHealth(host)
-    const isSmartctlHealthEnabled = smartctlHealth !== null
+    const smartctlHealth = await getSmartctlHealth(host).catch(console.error)
+    const isSmartctlHealthEnabled = smartctlHealth != null
     const smartctlUnhealthyDevices = isSmartctlHealthEnabled
       ? Object.keys(smartctlHealth).filter(deviceName => smartctlHealth[deviceName] !== 'PASSED')
       : undefined
@@ -189,11 +302,30 @@ export default class extends Component {
       }))
     }
 
+    const _isPciPassthroughAvailable = isPciPassthroughAvailable(host)
+    const pciStateById = {}
+    if (_isPciPassthroughAvailable) {
+      await Promise.all(
+        Object.keys(this.props.pcis).map(async id => {
+          const pciSate = {}
+          try {
+            pciSate.isHidden = await isPciHidden(id)
+          } catch (error) {
+            console.error(error)
+            pciSate.error = error.message
+          }
+          pciStateById[id] = pciSate
+        })
+      )
+    }
+
     this.setState({
       isHtEnabled: await isHyperThreadingEnabledHost(host).catch(() => null),
       isSmartctlHealthEnabled,
+      pciStateById,
       smartctlUnhealthyDevices,
       unhealthyDevicesAlerts,
+      isPciPassthroughAvailable: _isPciPassthroughAvailable,
     })
   }
 
@@ -244,7 +376,7 @@ export default class extends Component {
       ),
     }).then(memory => setControlDomainMemory(this.props.host.id, memory), noop)
 
-  _accessAdvancedLiveTelemetry = () => window.open(`/netdata/host/${encodeURIComponent(this.props.host.hostname)}/`)
+  _accessAdvancedLiveTelemetry = () => window.open(`./netdata/host/${encodeURIComponent(this.props.host.hostname)}/`)
 
   _enableAdvancedLiveTelemetry = async host => {
     await enableAdvancedLiveTelemetry(host)
@@ -254,7 +386,7 @@ export default class extends Component {
   }
 
   render() {
-    const { controlDomain, host, pcis, pgpus, schedGran } = this.props
+    const { controlDomain, host, pcis, pgpus, pusbs, schedGran } = this.props
     const {
       isHtEnabled,
       isNetDataPluginInstalledOnHost,
@@ -559,6 +691,18 @@ export default class extends Component {
               </tbody>
             </table>
             <br />
+            <h3>{_('pusbDevices')}</h3>
+            <SortedTable collection={pusbs} columns={PUSBS_COLUMNS} />
+            <br />
+            <h3>{_('pciDevices')}</h3>
+            <SortedTable
+              groupedActions={PCIS_ACTIONS}
+              collection={pcis}
+              columns={PCIS_COLUMNS}
+              data-pciStateById={this.state.pciStateById}
+              data-isPciPassthroughAvailable={this.state.isPciPassthroughAvailable}
+              stateUrlParam='s_pcis'
+            />
             <h3>{_('licenseHostSettingsLabel')}</h3>
             <table className='table'>
               <tbody>

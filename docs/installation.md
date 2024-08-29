@@ -1,8 +1,12 @@
 # Installation
 
+:::tip
+If you want to deploy an XOA in an airgapped infrastructure, refer to the [dedicated documentation](airgap.md).
+:::
+
 ## XOA
 
-Log in to your account and use the deploy form [available on this page](https://xen-orchestra.com/#!/xoa).
+Log in to your account and use the deploy form [available on this page](https://vates.tech/deploy/).
 
 :::tip
 All the deploy code is within your browser, nothing is sent to our server!
@@ -18,9 +22,10 @@ Once you have started the VM, you can access the web UI by putting the IP you co
 - Check your router's DHCP leases for an `xoa` lease
 
 :::tip
+
 - Default Web UI credentials are `admin@admin.net` / `admin`
 - Default console/SSH credentials are not set, you need to set them [as described here](troubleshooting.md#set-or-recover-xoa-vm-password).
-:::
+  :::
 
 ### Registration
 
@@ -44,7 +49,7 @@ Then you can click on "Start Trial", the green button:
 
 ![](./assets/xo5starttrial.png)
 
-Remember to click on the Upgrade button after requesting a trial - this will download the **Premium Edition** for 15 days!
+Remember to click on the Upgrade button after requesting a trial - this will download the **Premium Edition** for 30 days!
 
 ![](./assets/xo5updatebutton.png)
 
@@ -82,13 +87,13 @@ As you may have seen in other parts of the documentation, XO is composed of two 
 
 #### NodeJS
 
-XO requires Node.js 18.
+XO requires [Node.js](https://en.wikipedia.org/wiki/Node.js), **please always use [latest LTS](https://github.com/nodejs/release?tab=readme-ov-file#release-schedule)**.
 
 We'll consider at this point that you've got a working node on your box. E.g:
 
 ```console
 $ node -v
-v18.18.0
+v20.14.0
 ```
 
 If not, see [this page](https://nodejs.org/en/download/package-manager/) for instructions on how to install Node.
@@ -106,13 +111,13 @@ XO needs the following packages to be installed. Redis is used as a database by 
 For example, on Debian/Ubuntu:
 
 ```sh
-apt-get install build-essential redis-server libpng-dev git python3-minimal libvhdi-utils lvm2 cifs-utils nfs-common
+apt-get install build-essential redis-server libpng-dev git python3-minimal libvhdi-utils lvm2 cifs-utils nfs-common ntfs-3g
 ```
 
 On Fedora/CentOS like:
 
 ```sh
-dnf install redis libpng-devel git libvhdi-tools lvm2 cifs-utils make automake gcc gcc-c++
+dnf install redis libpng-devel git lvm2 cifs-utils make automake gcc gcc-c++ nfs-utils ntfs-3g
 ```
 
 ### Make sure Redis is running
@@ -199,6 +204,8 @@ Then restart Xen Orchestra if it was running.
 
 ### Always Running
 
+#### Using forever
+
 - You can use [forever](https://github.com/nodejitsu/forever) to have the process always running:
 
 ```sh
@@ -233,6 +240,46 @@ If you need to delete the service:
 ```sh
 forever-service delete orchestra
 ```
+
+#### Systemd service
+
+You can also use systemd to enable the service instead.
+
+_The following example is based on a Ubuntu 24.04 installation_
+
+Create the following file `/etc/systemd/system/xo-server.service` containing the following inside:
+
+```ini
+[Unit]
+Description=XO Server
+After=network-online.target
+
+[Service]
+Environment="DEBUG=xo:main"
+Restart=always
+SyslogIdentifier=xo-server
+
+# Be sure to edit the path below to where your Node and your xo-server install is located!
+ExecStart=/usr/bin/node /home/username/xen-orchestra/packages/xo-server/dist/cli.mjs
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Reload the daemon and enable the service:
+
+```sh
+systemctl daemon-reload
+systemctl enable --now xo-server
+```
+
+You can then use standard systemd commands to start/stop/check status e.g.
+
+```sh
+systemctl status xo-server
+```
+
+> **Security:** `xo-server` will be run as `root`, make sure your files are not editable by other users or it may be used as an attack vector.
 
 ### Banner and warnings
 

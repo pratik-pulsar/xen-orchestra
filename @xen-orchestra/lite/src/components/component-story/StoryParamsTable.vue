@@ -1,14 +1,11 @@
 <template>
-  <table class="story-params-table">
+  <table class="story-params-table typo p2-regular">
     <slot />
   </table>
 </template>
 
-<script lang="ts" setup></script>
-
 <style lang="postcss" scoped>
 .story-params-table {
-  font-size: 1.4rem;
   border-spacing: 0;
 
   & :slotted(thead th) {
@@ -25,12 +22,12 @@
     th,
     td {
       padding: 0.3rem 0.6rem;
-      border-bottom: 0.1rem solid var(--color-blue-scale-400);
+      border-bottom: 0.1rem solid var(--color-grey-500);
       vertical-align: center;
     }
 
     &:nth-child(odd) {
-      background-color: var(--background-color-extra-blue);
+      background-color: var(--background-color-purple-10);
     }
   }
 

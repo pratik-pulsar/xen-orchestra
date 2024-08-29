@@ -3,7 +3,7 @@
     <thead>
       <tr>
         <th>Setting</th>
-        <th><!--Widget--></th>
+        <th><!-- Widget --></th>
         <th>Help</th>
       </tr>
     </thead>
@@ -35,25 +35,25 @@
 </template>
 
 <script lang="ts" setup>
-import { useVModel } from "@vueuse/core";
-import StoryParamsTable from "@/components/component-story/StoryParamsTable.vue";
-import StoryWidget from "@/components/component-story/StoryWidget.vue";
-import type { SettingParam } from "@/libs/story/story-param";
+import StoryParamsTable from '@/components/component-story/StoryParamsTable.vue'
+import StoryWidget from '@/components/component-story/StoryWidget.vue'
+import type { SettingParam } from '@/libs/story/story-param'
+import { useVModel } from '@vueuse/core'
 
 const props = defineProps<{
-  params: SettingParam[];
-  modelValue?: Record<string, any>;
-}>();
+  params: SettingParam[]
+  modelValue?: Record<string, any>
+}>()
 
 const emit = defineEmits<{
-  (event: "reset"): void;
-  (event: "update:modelValue", value: any): void;
-}>();
+  reset: []
+  'update:modelValue': [value: any]
+}>()
 
-const model = useVModel(props, "modelValue", emit);
+const model = useVModel(props, 'modelValue', emit)
 </script>
 
-<style lang="postcss">
+<style lang="postcss" scoped>
 .reset-all {
   text-align: right;
   padding-top: 1.2rem;

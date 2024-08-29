@@ -17,7 +17,7 @@ import {
   subscribeNotifications,
   subscribePermissions,
   subscribeProxies,
-  subscribeProxiesApplianceUpdaterState,
+  subscribeProxyApplianceUpdaterState,
   subscribeResourceSets,
   subscribeSrsUnhealthyVdiChainsLength,
   VDIS_TO_COALESCE_LIMIT,
@@ -33,7 +33,7 @@ import {
   getXoaState,
   isAdmin,
 } from 'selectors'
-import { every, forEach, identity, isEmpty, isEqual, map, pick, size, some } from 'lodash'
+import { countBy, every, forEach, identity, isEmpty, isEqual, map, pick, size, some } from 'lodash'
 
 import styles from './index.css'
 
@@ -112,7 +112,10 @@ export default class Menu extends Component {
     () => this.state.proxyStates,
     proxyStates => some(proxyStates, state => state.endsWith('-upgrade-needed'))
   )
-
+  _getNProxiesErrors = createSelector(
+    () => this.state.proxyStates,
+    proxyStates => countBy(proxyStates).error
+  )
   _checkPermissions = createSelector(
     () => this.props.isAdmin,
     () => this.props.permissions,
@@ -192,7 +195,7 @@ export default class Menu extends Component {
     }))
 
     const unsubs = map(this.props.proxyIds, proxyId =>
-      subscribeProxiesApplianceUpdaterState(proxyId, ({ state: proxyState = '' }) => {
+      subscribeProxyApplianceUpdaterState(proxyId, ({ state: proxyState = '' }) => {
         this.setState(state => ({
           proxyStates: {
             ...state.proxyStates,
@@ -214,6 +217,7 @@ export default class Menu extends Component {
     const noOperatablePools = this._getNoOperatablePools()
     const noResourceSets = this._getNoResourceSets()
     const noNotifications = this._getNoNotifications()
+    const nProxiesErrors = this._getNProxiesErrors()
 
     const missingPatchesWarning = this._hasMissingPatches() ? (
       <Tooltip content={_('homeMissingPatches')}>
@@ -493,6 +497,45 @@ export default class Menu extends Component {
           },
         ],
       },
+      isAdmin && {
+        to: '/hub/templates',
+        icon: 'menu-hub',
+        label: 'hubPage',
+        subMenu: [
+          {
+            to: '/hub/templates',
+            icon: 'hub-template',
+            label: 'templatesLabel',
+          },
+          {
+            to: '/hub/recipes',
+            icon: 'hub-recipe',
+            label: 'recipesLabel',
+          },
+        ],
+      },
+      isAdmin && {
+        to: '/proxies',
+        icon: 'proxy',
+        label: 'proxies',
+        extra: [
+          this._areProxiesOutOfDate() ? (
+            <Tooltip content={_('proxiesNeedUpgrade')}>
+              <StackedIcons
+                icons={[
+                  { color: 'text-success', icon: 'circle', size: 2 },
+                  { icon: 'menu-update', size: 1 },
+                ]}
+              />
+            </Tooltip>
+          ) : nProxiesErrors > 0 ? (
+            <Tooltip content={_('someProxiesHaveErrors', { n: nProxiesErrors })}>
+              <span className='tag tag-pill tag-danger'>{nProxiesErrors}</span>
+            </Tooltip>
+          ) : null,
+        ],
+      },
+      isAdmin && { to: '/about', icon: 'menu-about', label: 'aboutPage' },
       {
         to: '/tasks',
         icon: 'task',

@@ -1,6 +1,6 @@
 import { isDefaultTemplate, parseDateTime } from '@xen-orchestra/xapi'
+import Obfuscate from '@vates/obfuscate'
 
-import * as sensitiveValues from './sensitive-values.mjs'
 import * as xoData from '@xen-orchestra/xapi/xoData.mjs'
 import ensureArray from './_ensureArray.mjs'
 import normalizeVmNetworks from './_normalizeVmNetworks.mjs'
@@ -10,7 +10,7 @@ import { extractProperty, forEach, isEmpty, mapFilter, parseXml } from './utils.
 import { getVmDomainType, isHostRunning, isVmRunning } from './xapi/index.mjs'
 import { useUpdateSystem } from './xapi/utils.mjs'
 
-const { warn } = createLogger('xo:server:xapi-objects-to-xo')
+const { debug, warn } = createLogger('xo:server:xapi-objects-to-xo')
 
 // ===================================================================
 
@@ -98,6 +98,7 @@ const TRANSFORMS = {
   pool(obj) {
     const cpuInfo = obj.cpu_info
     return {
+      auto_poweron: obj.other_config.auto_poweron === 'true',
       crashDumpSr: link(obj, 'crash_dump_SR'),
       current_operations: obj.current_operations,
       default_SR: link(obj, 'default_SR'),
@@ -110,6 +111,7 @@ const TRANSFORMS = {
       tags: obj.tags,
       name_description: obj.name_description,
       name_label: obj.name_label || obj.$master.name_label,
+      migrationCompression: obj.migration_compression,
       xosanPackInstallationTime: toTimestamp(obj.other_config.xosan_pack_installation_time),
       otherConfig: obj.other_config,
       cpus: {
@@ -328,6 +330,34 @@ const TRANSFORMS = {
 
     const { creation } = xoData.extract(obj) ?? {}
 
+    let $container
+    if (obj.resident_on !== 'OpaqueRef:NULL') {
+      // resident_on is set when the VM is running (or paused or suspended on a host)
+      $container = link(obj, 'resident_on')
+    } else {
+      // if the VM is halted, the $container is the pool
+      $container = link(obj, 'pool')
+
+      // unless one of its VDI is on a non shared SR
+      //
+      // linked objects may not be there when this code run, and it will only be
+      // refreshed when the VM XAPI record change, this value is not guaranteed
+      // to be up-to-date, but it practice it appears to work fine thanks to
+      // `VBDs` and `current_operations` changing when a VDI is
+      // added/removed/migrated
+      for (const vbd of obj.$VBDs) {
+        const sr = vbd?.$VDI?.$SR
+        if (sr !== undefined && !sr.shared) {
+          const pbd = sr.$PBDs[0]
+          const hostId = pbd && link(pbd, 'host')
+          if (hostId !== undefined) {
+            $container = hostId
+            break
+          }
+        }
+      }
+    }
+
     const vm = {
       // type is redefined after for controllers/, templates &
       // snapshots.
@@ -335,6 +365,7 @@ const TRANSFORMS = {
 
       addresses: normalizeVmNetworks(guestMetrics?.networks ?? {}),
       affinityHost: link(obj, 'affinity'),
+      attachedPcis: otherConfig.pci?.split(',')?.map(s => s.split('/')[1]),
       auto_poweron: otherConfig.auto_poweron === 'true',
       bios_strings: obj.bios_strings,
       blockedOperations: obj.blocked_operations,
@@ -371,7 +402,18 @@ const TRANSFORMS = {
       viridian: obj.platform.viridian === 'true',
       mainIpAddress: extractIpFromVmNetworks(guestMetrics?.networks),
       high_availability: obj.ha_restart_priority,
+      isFirmwareSupported: (() => {
+        const restrictions = parseXml(obj.recommendations)?.restrictions?.restriction
 
+        if (restrictions === undefined) {
+          return true
+        }
+
+        const field = `supports-${obj.HVM_boot_params.firmware}`
+        const firmwareRestriction = restrictions.find(restriction => restriction.field === field)
+
+        return firmwareRestriction === undefined || firmwareRestriction.value !== 'no'
+      })(),
       memory: (function () {
         const dynamicMin = +obj.memory_dynamic_min
         const dynamicMax = +obj.memory_dynamic_max
@@ -401,6 +443,8 @@ const TRANSFORMS = {
       installTime: metrics && toTimestamp(metrics.install_time),
       name_description: obj.name_description,
       name_label: obj.name_label,
+      needsVtpm: obj.platform.vtpm === 'true',
+      notes: otherConfig['xo:notes'],
       other: otherConfig,
       os_version: (guestMetrics && guestMetrics.os_version) || null,
       parent: link(obj, 'parent'),
@@ -421,14 +465,14 @@ const TRANSFORMS = {
       xenTools,
       ...getVmGuestToolsProps(obj),
 
-      // TODO: handle local VMs (`VM.get_possible_hosts()`).
-      $container: isRunning ? link(obj, 'resident_on') : link(obj, 'pool'),
+      $container,
       $VBDs: link(obj, 'VBDs'),
 
       // TODO: dedupe
       VGPUs: link(obj, 'VGPUs'),
       $VGPUs: link(obj, 'VGPUs'),
       nicType: obj.platform.nic_type,
+      xenStoreData: obj.xenstore_data,
     }
 
     if (isHvm) {
@@ -540,7 +584,7 @@ const TRANSFORMS = {
       attached: Boolean(obj.currently_attached),
       host: link(obj, 'host'),
       SR: link(obj, 'SR'),
-      device_config: sensitiveValues.replace(obj.device_config, '* obfuscated *'),
+      device_config: Obfuscate.replace(obj.device_config, '* obfuscated *'),
       otherConfig: obj.other_config,
     }
   },
@@ -562,15 +606,18 @@ const TRANSFORMS = {
       disallowUnplug: Boolean(obj.disallow_unplug),
       gateway: obj.gateway,
       ip: obj.IP,
+      ipv6: obj.IPv6,
       mac: obj.MAC,
       management: Boolean(obj.management), // TODO: find a better name.
       carrier: Boolean(metrics && metrics.carrier),
       mode: obj.ip_configuration_mode,
+      ipv6Mode: obj.ipv6_configuration_mode,
       mtu: +obj.MTU,
       netmask: obj.netmask,
       // A non physical PIF is a "copy" of an existing physical PIF (same device)
       // A physical PIF cannot be unplugged
       physical: Boolean(obj.physical),
+      primaryAddressType: obj.primary_address_type,
       vlan: +obj.VLAN,
       speed: metrics && +metrics.speed,
       $host: link(obj, 'host'),
@@ -584,6 +631,7 @@ const TRANSFORMS = {
     const vdi = {
       type: 'VDI',
 
+      cbt_enabled: obj.cbt_enabled,
       missing: obj.missing,
       name_description: obj.name_description,
       name_label: obj.name_label,
@@ -699,7 +747,14 @@ const TRANSFORMS = {
   task(obj) {
     let applies_to
     if (obj.other_config.applies_to) {
-      applies_to = obj.$xapi.getObject(obj.other_config.applies_to, undefined).uuid
+      const object = obj.$xapi.getObject(obj.other_config.applies_to, undefined)
+      if (object === undefined) {
+        debug(
+          `Unknown other_config.applies_to reference ${obj.other_config.applies_to} in task ${obj.$id}`
+        )
+      } else {
+        applies_to = object.uuid
+      }
     }
     return {
       allowedOperations: obj.allowed_operations,
@@ -850,11 +905,56 @@ const TRANSFORMS = {
     }
   },
 
+  // -----------------------------------------------------------------
+
   vtpm(obj) {
     return {
       type: 'VTPM',
 
       vm: link(obj, 'VM'),
+    }
+  },
+
+  // -----------------------------------------------------------------
+
+  pusb(obj) {
+    let description = obj.vendor_desc
+    if (obj.product_desc.trim() !== '') {
+      description += ` - ${obj.product_desc.trim()}`
+    }
+    return {
+      type: 'PUSB',
+
+      description,
+      host: link(obj, 'host'),
+      passthroughEnabled: obj.passthrough_enabled,
+      speed: obj.speed,
+      usbGroup: link(obj, 'USB_group'),
+      vendorId: obj.vendor_id,
+      version: obj.version,
+    }
+  },
+
+  // -----------------------------------------------------------------
+
+  vusb(obj) {
+    return {
+      type: 'VUSB',
+
+      vm: link(obj, 'VM'),
+      currentlyAttached: obj.currently_attached,
+      usbGroup: link(obj, 'USB_group'),
+    }
+  },
+
+  // -----------------------------------------------------------------
+
+  usb_group(obj) {
+    return {
+      type: 'USB_group',
+
+      PUSBs: link(obj, 'PUSBs'),
+      VUSBs: link(obj, 'VUSBs'),
     }
   },
 }

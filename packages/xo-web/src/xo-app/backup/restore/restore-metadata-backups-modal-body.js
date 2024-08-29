@@ -6,7 +6,7 @@ import React from 'react'
 import SingleLineRow from 'single-line-row'
 import StateButton from 'state-button'
 import { Container, Col, Row } from 'grid'
-import { FormattedDate } from 'react-intl'
+import { NumericDate } from 'utils'
 import { Select } from 'form'
 import { SelectPool } from 'select-objects'
 
@@ -26,17 +26,7 @@ export default class RestoreMetadataBackupModalBody extends Component {
     return this.state
   }
 
-  _optionRenderer = ({ timestamp }) => (
-    <FormattedDate
-      value={new Date(timestamp)}
-      month='long'
-      day='numeric'
-      year='numeric'
-      hour='2-digit'
-      minute='2-digit'
-      second='2-digit'
-    />
-  )
+  _optionRenderer = ({ timestamp }) => <NumericDate timestamp={timestamp} />
 
   render() {
     return (
@@ -55,10 +45,12 @@ export default class RestoreMetadataBackupModalBody extends Component {
             />
           </Col>
         </Row>
-        <Row className='mt-1'>
-          <SelectPool onChange={this.linkState('pool')} required value={this.state.pool} />
-        </Row>
-        {this.props.type !== 'XO' && <SingleLineRow>{restorationWarning}</SingleLineRow>}
+        {this.props.type !== 'XO' && [
+          <Row className='mt-1' key='select'>
+            <SelectPool onChange={this.linkState('pool')} required value={this.state.pool} />
+          </Row>,
+          <SingleLineRow key='message'>{restorationWarning}</SingleLineRow>,
+        ]}
       </Container>
     )
   }

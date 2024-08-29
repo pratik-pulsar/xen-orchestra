@@ -49,6 +49,7 @@ import {
   createVm,
   createVms,
   getCloudInitConfig,
+  getPoolGuestSecureBootReadiness,
   isSrShared,
   subscribeCurrentUser,
   subscribeIpPools,
@@ -225,6 +226,7 @@ const isVdiPresent = vdi => !vdi.missing
     },
     keys => keys
   )
+  const getHosts = createGetObjectsOfType('host')
   return (state, props) => ({
     isAdmin: getIsAdmin(state, props),
     isPoolAdmin: getIsPoolAdmin(state, props),
@@ -240,6 +242,7 @@ const isVdiPresent = vdi => !vdi.missing
     template: getTemplate(state, props, props.pool === undefined),
     templates: getTemplates(state, props),
     userSshKeys: getUserSshKeys(state, props),
+    hosts: getHosts(state, props),
   })
 })
 @injectIntl
@@ -266,9 +269,10 @@ export default class NewVm extends BaseComponent {
     })
   }
 
-  componentDidUpdate(prevProps) {
-    if (get(() => prevProps.template.id) !== get(() => this.props.template.id)) {
-      this._initTemplate(this.props.template)
+  async componentDidUpdate(prevProps) {
+    const template = this.props.template
+    if (get(() => prevProps.template.id) !== get(() => template.id)) {
+      this._initTemplate(template)
     }
 
     if (
@@ -277,6 +281,17 @@ export default class NewVm extends BaseComponent {
     ) {
       this._setState({
         share: this._getResourceSet()?.shareByDefault ?? false,
+      })
+    }
+
+    const pool = this.props.pool
+    if (
+      get(() => prevProps.pool.id) !== get(() => pool.id) ||
+      (pool === undefined && get(() => template.id) !== get(() => prevProps.template.id))
+    ) {
+      const poolId = pool?.id ?? template?.$pool
+      this.setState({
+        poolGuestSecurebootReadiness: poolId === undefined ? undefined : await getPoolGuestSecureBootReadiness(poolId),
       })
     }
   }
@@ -300,7 +315,7 @@ export default class NewVm extends BaseComponent {
 
   get _isDiskTemplate() {
     const { template } = this.props
-    return template && template.template_info.disks.length === 0 && template.name_label !== 'Other install media'
+    return template && template.$VBDs.length !== 0 && template.name_label !== 'Other install media'
   }
   _setState = (newValues, callback) => {
     this.setState(
@@ -470,7 +485,7 @@ export default class NewVm extends BaseComponent {
 
     const data = {
       affinityHost: state.affinityHost && state.affinityHost.id,
-      clone: !this.isDiskTemplate && state.fastClone,
+      clone: this._isDiskTemplate && state.fastClone,
       existingDisks: state.existingDisks,
       installation,
       name_label: state.name_label,
@@ -751,7 +766,7 @@ export default class NewVm extends BaseComponent {
     template => template && template.virtualizationMode === 'hvm'
   )
 
-  _templateNeedsVtpm = () => this.props.template?.platform?.vtpm === 'true'
+  _templateNeedsVtpm = () => this.props.template?.needsVtpm
 
   // On change -------------------------------------------------------------------
 
@@ -1777,11 +1792,25 @@ export default class NewVm extends BaseComponent {
               </Item>
             </SectionContent>
           ),
-          hvmBootFirmware === 'uefi' && (
-            <SectionContent>
+          hvmBootFirmware === 'uefi' && [
+            <SectionContent key='secureBoot'>
               <Item label={_('secureBoot')}>
                 <Toggle onChange={this._toggleState('secureBoot')} value={secureBoot} />
               </Item>
+              {secureBoot && this.state.poolGuestSecurebootReadiness === 'not_ready' && (
+                <span className='align-self-center text-danger ml-1'>
+                  <a
+                    href='https://docs.xcp-ng.org/guides/guest-UEFI-Secure-Boot/'
+                    rel='noopener noreferrer'
+                    className='text-danger'
+                    target='_blank'
+                  >
+                    <Icon icon='alarm' /> {_('secureBootNotSetup')}
+                  </a>
+                </span>
+              )}
+            </SectionContent>,
+            <SectionContent key='vtpm'>
               <Item label={_('enableVtpm')} className='d-inline-flex'>
                 <Tooltip content={!isVtpmSupported ? _('vtpmNotSupported') : undefined}>
                   <Toggle onChange={this._toggleState('createVtpm')} value={createVtpm} disabled={!isVtpmSupported} />
@@ -1799,8 +1828,8 @@ export default class NewVm extends BaseComponent {
                   </span>
                 )}
               </Item>
-            </SectionContent>
-          ),
+            </SectionContent>,
+          ],
           isAdmin && isHvm && (
             <SectionContent>
               <Item>
@@ -1870,29 +1899,21 @@ export default class NewVm extends BaseComponent {
           {limits && (
             <Row>
               <Col size={3}>
-                {cpusLimits && (
-                  <Limits
-                    limit={cpusLimits.total}
-                    toBeUsed={CPUs * factor}
-                    used={cpusLimits.total - cpusLimits.available}
-                  />
+                {cpusLimits?.total !== undefined && (
+                  <Limits limit={cpusLimits.total} toBeUsed={CPUs * factor} used={cpusLimits.usage} />
                 )}
               </Col>
               <Col size={3}>
-                {memoryLimits && (
-                  <Limits
-                    limit={memoryLimits.total}
-                    toBeUsed={_memory * factor}
-                    used={memoryLimits.total - memoryLimits.available}
-                  />
+                {memoryLimits?.total !== undefined && (
+                  <Limits limit={memoryLimits.total} toBeUsed={_memory * factor} used={memoryLimits.usage} />
                 )}
               </Col>
               <Col size={3}>
-                {diskLimits && (
+                {diskLimits?.total !== undefined && (
                   <Limits
                     limit={diskLimits.total}
                     toBeUsed={(sumBy(VDIs, 'size') + sum(map(existingDisks, disk => disk.size))) * factor}
-                    used={diskLimits.total - diskLimits.available}
+                    used={diskLimits.usage}
                   />
                 )}
               </Col>
@@ -1923,10 +1944,10 @@ export default class NewVm extends BaseComponent {
     const factor = multipleVms ? nameLabels.length : 1
 
     return !(
-      CPUs * factor > get(() => resourceSet.limits.cpus.available) ||
-      _memory * factor > get(() => resourceSet.limits.memory.available) ||
+      CPUs * factor > get(() => resourceSet.limits.cpus.total - resourceSet.limits.cpus.usage) ||
+      _memory * factor > get(() => resourceSet.limits.memory.total - resourceSet.limits.memory.usage) ||
       (sumBy(VDIs, 'size') + sum(map(existingDisks, disk => disk.size))) * factor >
-        get(() => resourceSet.limits.disk.available)
+        get(() => resourceSet.limits.disk.total - resourceSet.limits.disk.usage)
     )
   }
 }

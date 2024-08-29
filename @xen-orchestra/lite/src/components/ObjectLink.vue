@@ -12,85 +12,74 @@
 </template>
 
 <script generic="T extends ObjectType" lang="ts" setup>
-import UiSpinner from "@/components/ui/UiSpinner.vue";
-import type {
-  ObjectType,
-  ObjectTypeToRecord,
-} from "@/libs/xen-api/xen-api.types";
-import { useHostStore } from "@/stores/xen-api/host.store";
-import { usePoolStore } from "@/stores/xen-api/pool.store";
-import { useSrStore } from "@/stores/xen-api/sr.store";
-import { useVmStore } from "@/stores/xen-api/vm.store";
-import type { StoreDefinition } from "pinia";
-import { computed, onUnmounted, watch } from "vue";
-import type { RouteRecordName } from "vue-router";
+import UiSpinner from '@/components/ui/UiSpinner.vue'
+import type { ObjectType, ObjectTypeToRecord } from '@/libs/xen-api/xen-api.types'
+import type { XapiContext } from '@/stores/xen-api/create-xapi-store-config'
+import { useHostStore } from '@/stores/xen-api/host.store'
+import { usePoolStore } from '@/stores/xen-api/pool.store'
+import { useSrStore } from '@/stores/xen-api/sr.store'
+import { useVmStore } from '@/stores/xen-api/vm.store'
+import { computed, watch } from 'vue'
+import type { RouteRecordName } from 'vue-router'
 
-type HandledTypes = "host" | "vm" | "sr" | "pool";
-type XRecord = ObjectTypeToRecord<T>;
+type HandledTypes = 'host' | 'vm' | 'sr' | 'pool'
+type XRecord = ObjectTypeToRecord<T>
 type Config = Partial<
   Record<
     ObjectType,
     {
-      useStore: StoreDefinition<any, any, any, any>;
-      routeName: RouteRecordName | undefined;
+      context: XapiContext<any> & { start: () => void; stop: () => void }
+      routeName: RouteRecordName | undefined
     }
   >
->;
+>
 
 const props = defineProps<{
-  type: T;
-  uuid: XRecord["uuid"];
-}>();
+  type: T
+  uuid: XRecord['uuid']
+}>()
 
 const config: Config = {
-  host: { useStore: useHostStore, routeName: "host.dashboard" },
-  vm: { useStore: useVmStore, routeName: "vm.console" },
-  sr: { useStore: useSrStore, routeName: undefined },
-  pool: { useStore: usePoolStore, routeName: "pool.dashboard" },
-} satisfies Record<HandledTypes, any>;
+  host: { context: useHostStore().subscribe({ defer: true }), routeName: 'host.dashboard' },
+  vm: { context: useVmStore().subscribe({ defer: true }), routeName: 'vm.console' },
+  sr: { context: useSrStore().subscribe({ defer: true }), routeName: undefined },
+  pool: { context: usePoolStore().subscribe({ defer: true }), routeName: 'pool.dashboard' },
+} satisfies Record<HandledTypes, any>
 
-const store = computed(() => config[props.type]?.useStore());
-
-const subscriptionId = Symbol();
+const context = computed(() => config[props.type]?.context)
 
 watch(
-  store,
-  (nextStore, previousStore) => {
-    previousStore?.unsubscribe(subscriptionId);
-    nextStore?.subscribe(subscriptionId);
+  context,
+  (nextContext, previousContext) => {
+    previousContext?.stop()
+    nextContext?.start()
   },
   { immediate: true }
-);
+)
 
-onUnmounted(() => {
-  store.value?.unsubscribe(subscriptionId);
-});
-
-const record = computed<ObjectTypeToRecord<HandledTypes> | undefined>(
-  () => store.value?.getByUuid(props.uuid as any)
-);
+const record = computed(() => context.value?.getByUuid(props.uuid as any))
 
 const isReady = computed(() => {
-  return store.value?.isReady ?? true;
-});
+  return context.value?.isReady.value ?? true
+})
 
 const objectRoute = computed(() => {
-  const { routeName } = config[props.type] ?? {};
+  const { routeName } = config[props.type] ?? {}
 
   if (routeName === undefined) {
-    return;
+    return
   }
 
   return {
     name: routeName,
     params: { uuid: props.uuid },
-  };
-});
+  }
+})
 </script>
 
 <style lang="postcss" scoped>
 .unknown {
-  color: var(--color-blue-scale-300);
+  color: var(--color-grey-300);
   font-style: italic;
 }
 </style>

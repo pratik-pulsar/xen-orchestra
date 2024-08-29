@@ -33,12 +33,20 @@ html
                 i.fa.fa-sign-in
                 |  Sign in
       else
-        each label, id in strategies
-          div: a(href = 'signin/' + id).btn.btn-block.btn-primary.mb-1 Sign in with #{label}
-        form(action = 'signin/local' method = 'post' style='align-self:center')
-          div.mb-2(style='display:flex; justify-contents:center; align-items:center;') 
-            img(src='/assets/logo.png' alt='login' style='width:75px; height:50px;') 
-            h2.text-xs-center.mb-0.pl-2 Xen Orchestra 
+        if Object.keys(strategies).length !== 0
+          form(action = 'signin/dispatch' method = 'post')
+            .checkbox
+              label
+                input(
+                  name = 'remember-me'
+                  type = 'checkbox'
+                )
+                | &nbsp;
+                | Remember me
+            each label, id in strategies
+              div: button(type = 'submit' name = 'provider' value = id).btn.btn-block.btn-primary.mb-1 Sign in with #{label}
+          hr
+        form(action = 'signin/local' method = 'post')
           fieldset
             .input-group.mb-1
               span.input-group-addon
@@ -68,9 +76,8 @@ html
                 | &nbsp;
                 | Remember me
             div
-              button.btn.btn-block.btn-info
-                i.fa.fa-sign-in
-                |  Sign in
+              button.btn.btn-block.btn-primary
+                |  Sign in with password
     script.
       (function () {
         var d = document

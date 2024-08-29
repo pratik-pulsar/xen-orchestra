@@ -2,9 +2,10 @@
   <div class="app-login form-container">
     <form @submit.prevent="handleSubmit">
       <img alt="XO Lite" src="../assets/logo-title.svg" />
+      <PoolOverrideWarning />
       <p v-if="isHostIsSlaveErr(error)" class="error">
         <UiIcon :icon="faExclamationCircle" />
-        {{ $t("login-only-on-master") }}
+        {{ $t('login-only-on-master') }}
         <a :href="masterUrl.href">{{ masterUrl.hostname }}</a>
       </p>
       <template v-else>
@@ -12,22 +13,22 @@
           <FormInput v-model="login" name="login" readonly type="text" />
         </FormInputWrapper>
         <FormInput
-          name="password"
           ref="passwordRef"
-          type="password"
           v-model="password"
+          name="password"
+          type="password"
           :class="{ error: isInvalidPassword }"
           :placeholder="$t('password')"
           :readonly="isConnecting"
           required
         />
-        <LoginError :error="error" />
+        <LoginError :error />
         <label class="remember-me-label">
           <FormCheckbox v-model="rememberMe" />
-          {{ $t("keep-me-logged") }}
+          {{ $t('keep-me-logged') }}
         </label>
         <UiButton type="submit" :busy="isConnecting">
-          {{ $t("login") }}
+          {{ $t('login') }}
         </UiButton>
       </template>
     </form>
@@ -35,68 +36,67 @@
 </template>
 
 <script lang="ts" setup>
-import { usePageTitleStore } from "@/stores/page-title.store";
-import { storeToRefs } from "pinia";
-import { onMounted, ref, watch } from "vue";
-import { useI18n } from "vue-i18n";
-import { useLocalStorage, whenever } from "@vueuse/core";
+import FormCheckbox from '@/components/form/FormCheckbox.vue'
+import FormInput from '@/components/form/FormInput.vue'
+import FormInputWrapper from '@/components/form/FormInputWrapper.vue'
+import LoginError from '@/components/LoginError.vue'
+import PoolOverrideWarning from '@/components/PoolOverrideWarning.vue'
+import UiIcon from '@/components/ui/icon/UiIcon.vue'
+import type { XenApiError } from '@/libs/xen-api/xen-api.types'
+import { usePageTitleStore } from '@/stores/page-title.store'
+import { useXenApiStore } from '@/stores/xen-api.store'
+import UiButton from '@core/components/button/UiButton.vue'
+import { faExclamationCircle } from '@fortawesome/free-solid-svg-icons'
+import { useLocalStorage, whenever } from '@vueuse/core'
+import { storeToRefs } from 'pinia'
+import { onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
-import FormCheckbox from "@/components/form/FormCheckbox.vue";
-import FormInput from "@/components/form/FormInput.vue";
-import FormInputWrapper from "@/components/form/FormInputWrapper.vue";
-import LoginError from "@/components/LoginError.vue";
-import UiButton from "@/components/ui/UiButton.vue";
-import UiIcon from "@/components/ui/icon/UiIcon.vue";
-import type { XenApiError } from "@/libs/xen-api/xen-api.types";
-import { faExclamationCircle } from "@fortawesome/free-solid-svg-icons";
-import { useXenApiStore } from "@/stores/xen-api.store";
+const { t } = useI18n()
+usePageTitleStore().setTitle(t('login'))
+const xenApiStore = useXenApiStore()
+const { isConnecting } = storeToRefs(xenApiStore)
+const login = ref('root')
+const password = ref('')
+const error = ref<XenApiError>()
+const passwordRef = ref<InstanceType<typeof FormInput>>()
+const isInvalidPassword = ref(false)
+const masterUrl = ref(new URL(window.origin))
+const rememberMe = useLocalStorage('rememberMe', false)
 
-const { t } = useI18n();
-usePageTitleStore().setTitle(t("login"));
-const xenApiStore = useXenApiStore();
-const { isConnecting } = storeToRefs(xenApiStore);
-const login = ref("root");
-const password = ref("");
-const error = ref<XenApiError>();
-const passwordRef = ref<InstanceType<typeof FormInput>>();
-const isInvalidPassword = ref(false);
-const masterUrl = ref(new URL(window.origin));
-const rememberMe = useLocalStorage("rememberMe", false);
-
-const focusPasswordInput = () => passwordRef.value?.focus();
-const isHostIsSlaveErr = (err: XenApiError | undefined) =>
-  err?.message === "HOST_IS_SLAVE";
+const focusPasswordInput = () => passwordRef.value?.focus()
+const isHostIsSlaveErr = (err: XenApiError | undefined) => err?.message === 'HOST_IS_SLAVE'
 
 onMounted(() => {
   if (rememberMe.value) {
-    xenApiStore.reconnect();
+    xenApiStore.reconnect()
   } else {
-    focusPasswordInput();
+    focusPasswordInput()
   }
-});
+})
 
 watch(password, () => {
-  isInvalidPassword.value = false;
-  error.value = undefined;
-});
+  isInvalidPassword.value = false
+  error.value = undefined
+})
 
 whenever(
   () => isHostIsSlaveErr(error.value),
   () => (masterUrl.value.hostname = error.value!.data)
-);
+)
 
 async function handleSubmit() {
   try {
-    await xenApiStore.connect(login.value, password.value);
+    await xenApiStore.connect(login.value, password.value)
   } catch (err: any) {
-    if (err.message === "SESSION_AUTHENTICATION_FAILED") {
-      focusPasswordInput();
-      isInvalidPassword.value = true;
+    if (err.message === 'SESSION_AUTHENTICATION_FAILED') {
+      focusPasswordInput()
+      isInvalidPassword.value = true
     } else {
-      console.error(error);
+      console.error(error)
     }
 
-    error.value = err;
+    error.value = err
   }
 }
 </script>
@@ -134,7 +134,7 @@ form {
   background-color: var(--background-color-secondary);
 
   .error {
-    color: var(--color-red-vates-base);
+    color: var(--color-red-base);
   }
 }
 
@@ -155,7 +155,7 @@ input {
   max-width: 100%;
   margin-bottom: 1rem;
   padding: 1rem 1.5rem;
-  border: 1px solid var(--color-blue-scale-400);
+  border: 1px solid var(--color-grey-500);
   border-radius: 0.8rem;
   background-color: white;
 }

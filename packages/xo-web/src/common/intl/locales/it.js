@@ -704,9 +704,6 @@ export default {
   // Original text: 'Host time and XOA time are not consistent with each other'
   warningHostTimeTooltip: "L'ora dello host e l'ora XOA non sono coerenti tra loro",
 
-  // Original text: 'Select from existing tags'
-  selectExistingTags: 'Seleziona da etichette esistenti',
-
   // Original text: 'Name'
   snapshotVmsName: 'Nome',
 
@@ -2386,9 +2383,6 @@ export default {
 
   // Original text: 'Invalid parameters'
   configIpErrorTitle: 'Parametri non validi',
-
-  // Original text: 'IP address and netmask required'
-  configIpErrorMessage: 'Indirizzo IP e maschera di rete richiesti',
 
   // Original text: 'Static IP address'
   staticIp: 'Indirizzo IP statico',
@@ -4809,9 +4803,9 @@ export default {
   // Original text: 'Downgrade'
   downgrade: 'Retrocedere',
 
-  // Original text: 'Please consider subscribing and trying it with all the features for free during 15 days on {link}.'
+  // Original text: 'Please consider subscribing and trying it with all the features for free during 30 days on {link}.'
   considerSubscribe:
-    "Ti preghiamo di prendere in considerazione l'abbonamento e provarlo con tutte le funzionalità gratuitamente per 15 giorni su {link}.",
+    "Ti preghiamo di prendere in considerazione l'abbonamento e provarlo con tutte le funzionalità gratuitamente per 30 giorni su {link}.",
 
   // Original text: 'Current version:'
   currentVersion: 'Versione attuale:',
@@ -5042,8 +5036,9 @@ export default {
   // Original text: 'Add OTP authentication'
   addOtpConfirm: 'Aggiungi autenticazione OTP',
 
-  // Original text: 'Are you sure you want to add OTP authentication?'
-  addOtpConfirmMessage: "Sei sicuro di voler aggiungere l'autenticazione OTP?",
+  // Original text: 'To enable OTP authentication, add it to your application and then enter your current password to validate.'
+  addOtpConfirmMessage:
+    "Per abilitare l'autenticazione OTP, aggiungila alla tua applicazione e quindi inserisci la password corrente per convalidare.",
 
   // Original text: 'Remove OTP authentication'
   removeOtpConfirm: 'Rimuovi autenticazione OTP',

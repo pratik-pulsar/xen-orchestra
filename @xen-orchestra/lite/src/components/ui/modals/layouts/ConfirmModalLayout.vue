@@ -12,7 +12,7 @@
         <UiTitle v-if="$slots.title" type="h4">
           <slot name="title" />
         </UiTitle>
-        <div v-if="$slots.subtitle" class="subtitle">
+        <div v-if="$slots.subtitle" class="subtitle typo p1-regular">
           <slot name="subtitle" />
         </div>
       </div>
@@ -22,35 +22,35 @@
     </template>
 
     <template #footer>
-      <UiButtonGroup>
+      <ButtonGroup>
         <slot name="buttons" />
-      </UiButtonGroup>
+      </ButtonGroup>
     </template>
   </ModalContainer>
 </template>
 
 <script lang="ts" setup>
-import UiIcon from "@/components/ui/icon/UiIcon.vue";
-import ModalCloseIcon from "@/components/ui/modals/ModalCloseIcon.vue";
-import ModalContainer from "@/components/ui/modals/ModalContainer.vue";
-import UiButtonGroup from "@/components/ui/UiButtonGroup.vue";
-import UiTitle from "@/components/ui/UiTitle.vue";
-import { useContext } from "@/composables/context.composable";
-import { ColorContext } from "@/context";
-import type { IconDefinition } from "@fortawesome/fontawesome-common-types";
+import UiIcon from '@/components/ui/icon/UiIcon.vue'
+import ModalCloseIcon from '@/components/ui/modals/ModalCloseIcon.vue'
+import ModalContainer from '@/components/ui/modals/ModalContainer.vue'
+import UiTitle from '@/components/ui/UiTitle.vue'
+import { useContext } from '@/composables/context.composable'
+import { ColorContext } from '@/context'
+import ButtonGroup from '@core/components/button/ButtonGroup.vue'
+import type { IconDefinition } from '@fortawesome/fontawesome-common-types'
 
 defineProps<{
-  icon?: IconDefinition;
-}>();
-
-const { textClass } = useContext(ColorContext);
+  icon?: IconDefinition
+}>()
 
 defineSlots<{
-  title: () => void;
-  subtitle: () => void;
-  default: () => void;
-  buttons: () => void;
-}>();
+  title: () => void
+  subtitle: () => void
+  default: () => void
+  buttons: () => void
+}>()
+
+const { textClass } = useContext(ColorContext)
 </script>
 
 <style lang="postcss" scoped>
@@ -70,8 +70,7 @@ defineSlots<{
 }
 
 .subtitle {
-  font-size: 1.6rem;
   font-weight: 400;
-  color: var(--color-blue-scale-200);
+  color: var(--color-grey-200);
 }
 </style>

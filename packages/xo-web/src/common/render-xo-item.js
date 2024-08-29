@@ -5,14 +5,14 @@ import PropTypes from 'prop-types'
 import React from 'react'
 import { get } from '@xen-orchestra/defined'
 import find from 'lodash/find.js'
+import isEmpty from 'lodash/isEmpty.js'
 
 import decorate from './apply-decorators'
 import Icon from './icon'
 import Link from './link'
 import Tooltip from './tooltip'
-import { addSubscriptions, connectStore, formatSize, ShortDate } from './utils'
+import { addSubscriptions, connectStore, formatSize, NumericDate, ShortDate } from './utils'
 import { createGetObject, createSelector } from './selectors'
-import { FormattedDate } from 'react-intl'
 import { isSrWritable, subscribeBackupNgJobs, subscribeProxies, subscribeRemotes, subscribeUsers } from './xo'
 
 // ===================================================================
@@ -143,7 +143,8 @@ export const Vm = decorate([
 
     return (
       <LinkWrapper link={link} newTab={newTab} to={`/vms/${vm.id}`}>
-        <Icon icon={`vm-${vm.power_state.toLowerCase()}`} /> {vm.name_label}
+        <Icon icon={isEmpty(vm.current_operations) ? `vm-${vm.power_state.toLowerCase()}` : 'vm-busy'} />{' '}
+        {vm.name_label}
         {container !== undefined && ` (${container.name_label})`}
       </LinkWrapper>
     )
@@ -547,6 +548,19 @@ User.defaultProps = {
 
 // ===================================================================
 
+export const Pci = decorate([
+  connectStore(() => ({
+    pci: createGetObject(),
+  })),
+  ({ pci }) => (
+    <span>
+      {pci.class_name} {pci.device_name} ({pci.pci_id})
+    </span>
+  ),
+])
+
+// ===================================================================
+
 const xoItemToRender = {
   // Subscription objects.
   cloudConfig: template => (
@@ -644,21 +658,45 @@ const xoItemToRender = {
   backup: backup => (
     <span>
       <span className='tag tag-info' style={{ textTransform: 'capitalize' }}>
-        {backup.mode}
+        {backup.mode === 'delta' ? _('backupIsIncremental') : backup.mode}
       </span>{' '}
+      {backup.isImmutable && (
+        <span className='tag tag-info'>
+          <Icon icon='lock' />
+        </span>
+      )}{' '}
       <span className='tag tag-warning'>{backup.remote.name}</span>{' '}
+      {backup.differencingVhds > 0 && (
+        <span className='tag tag-info'>
+          {backup.differencingVhds} {_('backupIsDifferencing')}{' '}
+        </span>
+      )}
+      {backup.dynamicVhds > 0 && (
+        <span className='tag tag-info'>
+          {backup.dynamicVhds} {_('backupisKey')}{' '}
+        </span>
+      )}
+      {backup.withMemory && <span className='tag tag-info'>{_('withMemory')} </span>}
       {backup.size !== undefined && <span className='tag tag-info'>{formatSize(backup.size)}</span>}{' '}
-      <FormattedDate
-        value={new Date(backup.timestamp)}
-        month='long'
-        day='numeric'
-        year='numeric'
-        hour='2-digit'
-        minute='2-digit'
-        second='2-digit'
-      />
+      <NumericDate timestamp={backup.timestamp} />
     </span>
   ),
+
+  PCI: props => <Pci {...props} self />,
+
+  schedule: schedule => {
+    const isEnabled = schedule.enabled
+    const scheduleName = schedule.name.trim()
+    return (
+      <span>
+        <span className={`mr-1 tag tag-${isEnabled ? 'success' : 'danger'}`}>
+          {isEnabled ? _('stateEnabled') : _('stateDisabled')}
+        </span>
+        <span>{scheduleName === '' ? <em>{_('unnamedSchedule')}</em> : scheduleName}</span>
+      </span>
+    )
+  },
+  job: job => <spans>{job.name}</spans>,
 }
 
 const renderXoItem = (item, { className, type: xoType, ...props } = {}) => {

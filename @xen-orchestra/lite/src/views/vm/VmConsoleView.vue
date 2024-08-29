@@ -1,38 +1,23 @@
 <template>
   <div :class="{ 'no-ui': !uiStore.hasUi }" class="vm-console-view">
-    <div v-if="hasError">{{ $t("error-occurred") }}</div>
+    <div v-if="hasError">{{ $t('error-occurred') }}</div>
     <UiSpinner v-else-if="!isReady" class="spinner" />
-    <div v-else-if="!isVmRunning" class="not-running">
-      <div><img alt="" src="@/assets/monitor.svg" /></div>
-      {{ $t("power-on-for-console") }}
-    </div>
+    <UiStatusPanel v-else-if="!isVmRunning" :image-source="monitor" :title="$t('power-on-for-console')" />
     <template v-else-if="vm && vmConsole">
-      <AppMenu horizontal>
-        <MenuItem
-          :icon="faArrowUpRightFromSquare"
-          @click="openInNewTab"
-          v-if="uiStore.hasUi"
-        >
-          {{ $t("open-console-in-new-tab") }}
+      <MenuList horizontal>
+        <MenuItem v-if="uiStore.hasUi" :icon="faArrowUpRightFromSquare" @click="openInNewTab">
+          {{ $t('open-console-in-new-tab') }}
         </MenuItem>
         <MenuItem
-          :icon="
-            uiStore.hasUi
-              ? faUpRightAndDownLeftFromCenter
-              : faDownLeftAndUpRightToCenter
-          "
+          :icon="uiStore.hasUi ? faUpRightAndDownLeftFromCenter : faDownLeftAndUpRightToCenter"
           @click="toggleFullScreen"
         >
-          {{ $t(uiStore.hasUi ? "fullscreen" : "fullscreen-leave") }}
+          {{ $t(uiStore.hasUi ? 'fullscreen' : 'fullscreen-leave') }}
         </MenuItem>
-        <MenuItem
-          :disabled="!consoleElement"
-          :icon="faKeyboard"
-          @click="sendCtrlAltDel"
-        >
-          {{ $t("send-ctrl-alt-del") }}
+        <MenuItem :disabled="!consoleElement" :icon="faKeyboard" @click="sendCtrlAltDel">
+          {{ $t('send-ctrl-alt-del') }}
         </MenuItem>
-      </AppMenu>
+      </MenuList>
       <RemoteConsole
         ref="consoleElement"
         :is-console-available="isConsoleAvailable"
@@ -44,25 +29,28 @@
 </template>
 
 <script lang="ts" setup>
-import AppMenu from "@/components/menu/AppMenu.vue";
-import MenuItem from "@/components/menu/MenuItem.vue";
-import RemoteConsole from "@/components/RemoteConsole.vue";
-import UiSpinner from "@/components/ui/UiSpinner.vue";
-import { VM_OPERATION, VM_POWER_STATE } from "@/libs/xen-api/xen-api.enums";
-import type { XenApiVm } from "@/libs/xen-api/xen-api.types";
-import { usePageTitleStore } from "@/stores/page-title.store";
-import { useUiStore } from "@/stores/ui.store";
-import { useConsoleCollection } from "@/stores/xen-api/console.store";
-import { useVmCollection } from "@/stores/xen-api/vm.store";
+import monitor from '@/assets/monitor.svg'
+import RemoteConsole from '@/components/RemoteConsole.vue'
+import UiSpinner from '@/components/ui/UiSpinner.vue'
+import UiStatusPanel from '@/components/ui/UiStatusPanel.vue'
+import { isVmOperationPending } from '@/libs/vm'
+import { VM_OPERATION, VM_POWER_STATE } from '@/libs/xen-api/xen-api.enums'
+import type { XenApiVm } from '@/libs/xen-api/xen-api.types'
+import { usePageTitleStore } from '@/stores/page-title.store'
+import { useConsoleStore } from '@/stores/xen-api/console.store'
+import { useVmStore } from '@/stores/xen-api/vm.store'
+import MenuItem from '@core/components/menu/MenuItem.vue'
+import MenuList from '@core/components/menu/MenuList.vue'
+import { useUiStore } from '@core/stores/ui.store'
 import {
   faArrowUpRightFromSquare,
   faDownLeftAndUpRightToCenter,
   faKeyboard,
   faUpRightAndDownLeftFromCenter,
-} from "@fortawesome/free-solid-svg-icons";
-import { computed, ref } from "vue";
-import { useI18n } from "vue-i18n";
-import { useRoute, useRouter } from "vue-router";
+} from '@fortawesome/free-solid-svg-icons'
+import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 
 const STOP_OPERATIONS = [
   VM_OPERATION.SHUTDOWN,
@@ -72,65 +60,56 @@ const STOP_OPERATIONS = [
   VM_OPERATION.HARD_REBOOT,
   VM_OPERATION.PAUSE,
   VM_OPERATION.SUSPEND,
-];
+]
 
-usePageTitleStore().setTitle(useI18n().t("console"));
+usePageTitleStore().setTitle(useI18n().t('console'))
 
-const router = useRouter();
-const route = useRoute();
-const uiStore = useUiStore();
+const router = useRouter()
+const route = useRoute()
+const uiStore = useUiStore()
 
-const {
-  isReady: isVmReady,
-  getByUuid: getVmByUuid,
-  hasError: hasVmError,
-  isOperationPending,
-} = useVmCollection();
+const { isReady: isVmReady, getByUuid: getVmByUuid, hasError: hasVmError } = useVmStore().subscribe()
 
 const {
   isReady: isConsoleReady,
   getByOpaqueRef: getConsoleByOpaqueRef,
   hasError: hasConsoleError,
-} = useConsoleCollection();
+} = useConsoleStore().subscribe()
 
-const isReady = computed(() => isVmReady.value && isConsoleReady.value);
+const isReady = computed(() => isVmReady.value && isConsoleReady.value)
 
-const hasError = computed(() => hasVmError.value || hasConsoleError.value);
+const hasError = computed(() => hasVmError.value || hasConsoleError.value)
 
-const vm = computed(() => getVmByUuid(route.params.uuid as XenApiVm["uuid"]));
+const vm = computed(() => getVmByUuid(route.params.uuid as XenApiVm['uuid']))
 
-const isVmRunning = computed(
-  () => vm.value?.power_state === VM_POWER_STATE.RUNNING
-);
+const isVmRunning = computed(() => vm.value?.power_state === VM_POWER_STATE.RUNNING)
 
 const vmConsole = computed(() => {
-  const consoleOpaqueRef = vm.value?.consoles[0];
+  const consoleOpaqueRef = vm.value?.consoles[0]
 
   if (consoleOpaqueRef === undefined) {
-    return;
+    return
   }
 
-  return getConsoleByOpaqueRef(consoleOpaqueRef);
-});
+  return getConsoleByOpaqueRef(consoleOpaqueRef)
+})
 
 const isConsoleAvailable = computed(() =>
-  vm.value !== undefined
-    ? !isOperationPending(vm.value, STOP_OPERATIONS)
-    : false
-);
+  vm.value !== undefined ? !isVmOperationPending(vm.value, STOP_OPERATIONS) : false
+)
 
-const consoleElement = ref();
+const consoleElement = ref()
 
-const sendCtrlAltDel = () => consoleElement.value?.sendCtrlAltDel();
+const sendCtrlAltDel = () => consoleElement.value?.sendCtrlAltDel()
 
 const toggleFullScreen = () => {
-  uiStore.hasUi = !uiStore.hasUi;
-};
+  uiStore.hasUi = !uiStore.hasUi
+}
 
 const openInNewTab = () => {
-  const routeData = router.resolve({ query: { ui: "0" } });
-  window.open(routeData.href, "_blank");
-};
+  const routeData = router.resolve({ query: { ui: '0' } })
+  window.open(routeData.href, '_blank')
+}
 </script>
 
 <style lang="postcss" scoped>
@@ -145,7 +124,7 @@ const openInNewTab = () => {
 }
 
 .spinner {
-  color: var(--color-extra-blue-base);
+  color: var(--color-purple-base);
   display: flex;
   margin: auto;
   width: 10rem;
@@ -158,7 +137,6 @@ const openInNewTab = () => {
   height: 100%;
 }
 
-.not-running,
 .not-available {
   display: flex;
   align-items: center;
@@ -166,7 +144,7 @@ const openInNewTab = () => {
   flex-direction: column;
   text-align: center;
   gap: 4rem;
-  color: var(--color-extra-blue-base);
+  color: var(--color-purple-base);
   font-size: 3.6rem;
 }
 
@@ -180,8 +158,8 @@ const openInNewTab = () => {
     display: flex;
     align-items: center;
     gap: 1rem;
-    background-color: var(--color-extra-blue-base);
-    color: var(--color-blue-scale-500);
+    background-color: var(--color-purple-base);
+    color: var(--color-grey-600);
     text-decoration: none;
     padding: 1.5rem;
     font-size: 1.6rem;
@@ -196,7 +174,7 @@ const openInNewTab = () => {
   }
 }
 
-.vm-console-view:deep(.app-menu) {
+.vm-console-view:deep(.menu-list) {
   background-color: transparent;
   align-self: center;
 }

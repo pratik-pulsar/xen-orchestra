@@ -1,9 +1,11 @@
 import Component from 'base-component'
 import cookies from 'js-cookie'
 import DocumentTitle from 'react-document-title'
+import every from 'lodash/every'
 import Icon from 'icon'
 import Link from 'link'
 import map from 'lodash/map'
+import mapValues from 'lodash/mapValues'
 import PropTypes from 'prop-types'
 import React from 'react'
 import Shortcuts from 'shortcuts'
@@ -14,6 +16,7 @@ import { addSubscriptions, connectStore, getXoaPlan, noop, routes } from 'utils'
 import { blockXoaAccess, isTrialRunning } from 'xoa-updater'
 import { checkXoa, clearXoaCheckCache } from 'xo'
 import { forEach, groupBy, keyBy, pick } from 'lodash'
+import { Host as HostItem } from 'render-xo-item'
 import { Notification } from 'notification'
 import { productId2Plan } from 'xoa-plans'
 import { provideState } from 'reaclette'
@@ -52,7 +55,7 @@ import Import from './import'
 import keymap, { help } from '../keymap'
 import Tooltip from '../common/tooltip'
 import { createCollectionWrapper, createGetObjectsOfType } from '../common/selectors'
-import { bindXcpngLicense, rebindLicense, subscribeXcpngLicenses } from '../common/xo'
+import { bindXcpngLicense, rebindLicense, subscribeXcpngLicenses, subscribeXostorLicenses } from '../common/xo'
 import { SOURCES } from '../common/xoa-plans'
 
 const shortcutManager = new ShortcutManager(keymap)
@@ -135,14 +138,17 @@ export const ICON_POOL_LICENSE = {
 })
 @addSubscriptions({
   xcpLicenses: subscribeXcpngLicenses,
+  xostorLicenses: subscribeXostorLicenses,
 })
 @connectStore(state => {
   const getHosts = createGetObjectsOfType('host')
+  const getXostors = createGetObjectsOfType('SR').filter([sr => sr.SR_type === 'linstor'])
   return {
     trial: state.xoaTrialState,
     registerNeeded: state.xoaUpdaterState === 'registerNeeded',
     signedUp: !!state.user,
     hosts: getHosts(state),
+    xostors: getXostors(state),
   }
 })
 @provideState({
@@ -168,11 +174,14 @@ export const ICON_POOL_LICENSE = {
   computed: {
     // In case an host have more than 1 license, it's an issue.
     // poolLicenseInfoByPoolId can be impacted because the license expiration check may not yield the right information.
-    xcpngLicenseByBoundObjectId: (_, { xcpLicenses }) => keyBy(xcpLicenses, 'boundObjectId'),
+    xcpngLicenseByBoundObjectId: (_, { xcpLicenses }) =>
+      xcpLicenses === undefined ? undefined : keyBy(xcpLicenses, 'boundObjectId'),
+    xostorLicensesByBoundObjectId: (_, { xostorLicenses }) =>
+      xostorLicenses === undefined ? undefined : groupBy(xostorLicenses, 'boundObjectId'),
     xcpngLicenseById: (_, { xcpLicenses }) => keyBy(xcpLicenses, 'id'),
     hostsByPoolId: createCollectionWrapper((_, { hosts }) =>
       groupBy(
-        map(hosts, host => pick(host, ['$poolId', 'id'])),
+        map(hosts, host => pick(host, ['$poolId', 'id', 'version'])),
         '$poolId'
       )
     ),
@@ -194,7 +203,7 @@ export const ICON_POOL_LICENSE = {
         }
 
         for (const host of hosts) {
-          const license = xcpngLicenseByBoundObjectId[host.id]
+          const license = xcpngLicenseByBoundObjectId?.[host.id]
           if (license === undefined) {
             continue
           }
@@ -230,6 +239,80 @@ export const ICON_POOL_LICENSE = {
       placeholder: '',
     },
     isXoaStatusOk: ({ xoaStatus }) => !xoaStatus.includes('✖'),
+    areHostsVersionsEqualByPool: ({ hostsByPoolId }) =>
+      mapValues(hostsByPoolId, hosts => every(hosts, host => host.version === hosts[0].version)),
+    xostorLicenseInfoByXostorId: (
+      { xcpngLicenseByBoundObjectId, xostorLicensesByBoundObjectId, hostsByPoolId },
+      { xostors }
+    ) => {
+      if (xcpngLicenseByBoundObjectId === undefined || xostorLicensesByBoundObjectId === undefined) {
+        return
+      }
+      const xostorLicenseInfoByXostorId = {}
+      const now = Date.now()
+
+      forEach(xostors, xostor => {
+        const xostorId = xostor.id
+        const hosts = hostsByPoolId[xostor.$pool]
+
+        const alerts = []
+        let supportEnabled = true
+
+        hosts.forEach(host => {
+          const hostId = host.id
+          const xostorLicenses = xostorLicensesByBoundObjectId[hostId]
+
+          if (xostorLicenses === undefined) {
+            supportEnabled = false
+            alerts.push({
+              level: 'danger',
+              render: <p>{_('hostHasNoXostorLicense', { host: <HostItem id={hostId} /> })}</p>,
+            })
+          }
+
+          if (xostorLicenses?.length > 1) {
+            alerts.push({
+              level: 'warning',
+              render: (
+                <p>
+                  {_('hostBoundToMultipleXostorLicenses', { host: <HostItem id={hostId} /> })}
+                  <br />
+                  {xostorLicenses.map(license => license.id.slice(-4)).join(',')}
+                </p>
+              ),
+            })
+          }
+
+          const expiredXostorLicenses = xostorLicenses?.filter(license => license.expires < now)
+          if (expiredXostorLicenses?.length > 0) {
+            let level = 'warning'
+            if (expiredXostorLicenses.length === xostorLicenses.length) {
+              supportEnabled = false
+              level = 'danger'
+            }
+            alerts.push({
+              level,
+              render: (
+                <p>
+                  {_('licenseExpiredXostorWarning', {
+                    licenseIds: expiredXostorLicenses.map(license => license.id.slice(-4)).join(','),
+                    nLicenseIds: expiredXostorLicenses.length,
+                    host: <HostItem id={hostId} />,
+                  })}
+                </p>
+              ),
+            })
+          }
+        })
+
+        xostorLicenseInfoByXostorId[xostorId] = {
+          alerts,
+          supportEnabled,
+        }
+      })
+
+      return xostorLicenseInfoByXostorId
+    },
   },
 })
 export default class XoApp extends Component {
@@ -257,7 +340,11 @@ export default class XoApp extends Component {
           <p>{_('disclaimerText1')}</p>
           <p>
             {_('disclaimerText2')}{' '}
-            <a href='https://xen-orchestra.com/#!/xoa?pk_campaign=xoa_source_upgrade&pk_kwd=ossmodal'>
+            <a
+              href='https://vates.tech/deploy/?pk_campaign=xoa_source_upgrade&pk_kwd=ossmodal'
+              target='_blank'
+              rel='noreferrer'
+            >
               XOA (turnkey appliance)
             </a>
           </p>
@@ -283,6 +370,12 @@ export default class XoApp extends Component {
     // if (+process.env.XOA_PLAN === 5) {
     //   this.displayOpenSourceDisclaimer()
     // }
+  }
+
+  componentDidUpdate(prev) {
+    if (prev.location.pathname !== this.props.location.pathname) {
+      Modal.close()
+    }
   }
 
   _shortcutsHandler = (command, event) => {
@@ -368,7 +461,7 @@ export default class XoApp extends Component {
               {/* {plan === 'Community' && !this.state.dismissedSourceBanner && (
                 <div className='alert alert-danger mb-0'>
                   <a
-                    href='https://xen-orchestra.com/#!/xoa?pk_campaign=xo_source_banner'
+                    href='https://vates.tech/deploy/?pk_campaign=xo_source_banner'
                     rel='noopener noreferrer'
                     target='_blank'
                   >

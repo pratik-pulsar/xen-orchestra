@@ -136,6 +136,10 @@
     @extend .fa;
     @extend .fa-caret-up;
   }
+  &-coalesce {
+    @extend .fa;
+    @extend .fa-cog;
+  }
   &-loading {
     @extend .fa;
     @extend .fa-spinner;
@@ -354,6 +358,10 @@
     @extend .fa;
     @extend .fa-code;
   }
+  &-favorite {
+    @extend .fa;
+    @extend .fa-star;
+  }
 
   // Backups
   &-backup {
@@ -410,6 +418,40 @@
   &-migrate-job {
     @extend .fa;
     @extend .fa-share;
+  }
+
+  // IPMI
+  &-cpu-temperature {
+    @extend .fa;
+    @extend .fa-thermometer-full;
+  }
+  &-fan-speed {
+    @extend .fa;
+    @extend .fa-circle-o-notch;
+  }
+  &-fan-status {
+    @extend .fa;
+    @extend .fa-medkit;
+  }
+  &-inlet {
+    @extend .fa;
+    @extend .fa-sign-in;
+  }
+  &-ipmi {
+    @extend .fa;
+    @extend .fa-wrench;
+  }
+  &-outlet {
+    @extend .fa;
+    @extend .fa-sign-out;
+  }
+  &-psu {
+    @extend .fa;
+    @extend .fa-plug;
+  }
+  &-total-power {
+    @extend .fa;
+    @extend .fa-tachometer;
   }
 
   // VM
@@ -502,6 +544,11 @@
     &-warm-migration {
       @extend .fa;
       @extend .fa-fire;
+    }
+
+    &-coalesce-leaf {
+      @extend .fa;
+      @extend .fa-compress;
     }
   }
 
@@ -690,6 +737,10 @@
     &-rolling-update {
       @extend .fa;
       @extend .fa-angle-double-down;
+    }
+    &-rolling-reboot {
+      @extend .fa;
+      @extend .fa-circle-o-notch;
     }
   }
 

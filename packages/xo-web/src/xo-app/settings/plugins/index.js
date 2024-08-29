@@ -47,7 +47,7 @@ class Plugin extends Component {
     name => {
       const s = new ComplexMatcher.Property(
         'name',
-        new ComplexMatcher.RegExp('^' + escapeRegExp(name) + '$', 'i')
+        new ComplexMatcher.RegExp('^' + escapeRegExp(name) + '$')
       ).toString()
       return location => ({ ...location, query: { ...location.query, s } })
     }
@@ -76,12 +76,15 @@ class Plugin extends Component {
 
   _updateLoad = () => {
     const { props } = this
+    const { id } = props
 
     if (!props.loaded) {
-      return loadPlugin(props.id)
+      enablePluginAutoload(id).catch(console.warn)
+      return loadPlugin(id)
     }
     if (props.unloadable !== false) {
-      return unloadPlugin(props.id)
+      disablePluginAutoload(id).catch(console.warn)
+      return unloadPlugin(id)
     }
   }
 
