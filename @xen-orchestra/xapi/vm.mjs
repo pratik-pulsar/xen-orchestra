@@ -9,11 +9,11 @@ import { asyncMap } from '@xen-orchestra/async-map'
 import { createLogger } from '@xen-orchestra/log'
 import { decorateClass } from '@vates/decorate-with'
 import { defer } from 'golike-defer'
+import { finished } from 'node:stream'
 import { incorrectState, forbiddenOperation } from 'xo-common/api-errors.js'
 import { JsonRpcError } from 'json-rpc-protocol'
 import { Ref } from 'xen-api'
 
-import extractOpaqueRef from './_extractOpaqueRef.mjs'
 import isDefaultTemplate from './isDefaultTemplate.mjs'
 import isVmRunning from './_isVmRunning.mjs'
 
@@ -69,14 +69,14 @@ function getVmAddress(networks) {
   throw new Error('no VM address found')
 }
 
-async function listNobakVbds(xapi, vbdRefs) {
+async function listTaggedVdiVbds(xapi, vbdRefs, tag) {
   const vbds = []
   await asyncMap(vbdRefs, async vbdRef => {
     const vbd = await xapi.getRecord('VBD', vbdRef)
     if (
       vbd.type === 'Disk' &&
       Ref.isNotEmpty(vbd.VDI) &&
-      (await xapi.getField('VDI', vbd.VDI, 'name_label')).startsWith('[NOBAK]')
+      (await xapi.getField('VDI', vbd.VDI, 'name_label')).includes(tag)
     ) {
       vbds.push(vbd)
     }
@@ -224,7 +224,7 @@ class Vm {
       name_label = vm.name_label
     }
     try {
-      const ref = await this.callAsync(cancelToken, 'VM.checkpoint', vmRef, name_label).then(extractOpaqueRef)
+      const ref = await this.callAsync(cancelToken, 'VM.checkpoint', vmRef, name_label)
 
       // detached async
       this._httpHook(vm, '/post-sync').catch(noop)
@@ -502,7 +502,7 @@ class Vm {
       exportedVmRef = vmRef
     }
     try {
-      const stream = await this.getResource(cancelToken, '/export/', {
+      const response = await this.getResource(cancelToken, '/export/', {
         query: {
           ref: exportedVmRef,
           use_compression: compress === 'zstd' ? 'zstd' : compress === true || compress === 'gzip' ? 'true' : 'false',
@@ -511,10 +511,10 @@ class Vm {
       })
 
       if (useSnapshot) {
-        stream.once('end', destroySnapshot).once('error', destroySnapshot)
+        finished(response.body, destroySnapshot)
       }
 
-      return stream
+      return response
     } catch (error) {
       // augment the error with as much relevant info as possible
       const [poolMaster, exportedVm] = await Promise.all([
@@ -563,10 +563,10 @@ class Vm {
       )
     }
     try {
-      const ref = await this.putResource(stream, '/import/', {
+      const [ref] = await this.putResource(stream, '/import/', {
         query,
         task: taskRef,
-      }).then(extractOpaqueRef)
+      })
       if (onVmCreation != null) {
         ignoreErrors.call(this.getRecord('VM', ref).then(onVmCreation))
       }
@@ -599,10 +599,37 @@ class Vm {
     }
   }
 
+  async coalesceLeaf($defer, vmRef) {
+    try {
+      await this.callAsync('VM.suspend', vmRef)
+      $defer(() => this.callAsync('VM.resume', vmRef, false, true))
+    } catch (error) {
+      if (error.code !== 'VM_BAD_POWER_STATE') {
+        throw error
+      }
+
+      const powerState = error.params[2].toLowerCase()
+      if (powerState !== 'halted' && powerState !== 'suspended') {
+        throw error
+      }
+    }
+
+    // plugin doc: https://docs.xenserver.com/en-us/xenserver/8/storage/manage.html#reclaim-space-by-using-the-offline-coalesce-tool
+    // result can be: `Success` or `VM has no leaf-coalesceable VDIs`
+    // https://github.com/xapi-project/sm/blob/eb292457c5fd5f00f6fc82454a915068ab15aa6f/drivers/coalesce-leaf#L48
+    const result = await this.callAsync('host.call_plugin', this.pool.master, 'coalesce-leaf', 'leaf-coalesce', {
+      vm_uuid: await this.getField('VM', vmRef, 'uuid'),
+    })
+
+    if (result.toLowerCase() !== 'success') {
+      throw new Error(result)
+    }
+  }
+
   async snapshot(
     $defer,
     vmRef,
-    { cancelToken = CancelToken.none, ignoreNobakVdis = false, name_label, unplugVusbs = false } = {}
+    { cancelToken = CancelToken.none, ignoredVdisTag, name_label, unplugVusbs = false } = {}
   ) {
     const vm = await this.getRecord('VM', vmRef)
 
@@ -624,26 +651,28 @@ class Vm {
     }
 
     let ignoredVbds
-    if (ignoreNobakVdis) {
-      ignoredVbds = await listNobakVbds(this, vm.VBDs)
-      ignoreNobakVdis = ignoredVbds.length !== 0
+    if (ignoredVdisTag !== undefined) {
+      ignoredVbds = await listTaggedVdiVbds(this, vm.VBDs, ignoredVdisTag)
+      if (ignoredVbds.length === 0) {
+        ignoredVbds = undefined
+      }
     }
 
     const params = [cancelToken, 'VM.snapshot', vmRef, name_label ?? vm.name_label]
-    if (ignoreNobakVdis) {
+    if (ignoredVbds !== undefined) {
       params.push(ignoredVbds.map(_ => _.VDI))
     }
 
     let destroyNobakVdis = false
-    let result
+    let ref
     try {
-      result = await this.callAsync(...params)
+      ref = await this.callAsync(...params)
     } catch (error) {
       if (error.code !== 'MESSAGE_PARAMETER_COUNT_MISMATCH') {
         throw error
       }
 
-      if (ignoreNobakVdis) {
+      if (ignoredVbds !== undefined) {
         if (isHalted) {
           await asyncMap(ignoredVbds, async vbd => {
             await this.VBD_destroy(vbd.$ref)
@@ -657,10 +686,8 @@ class Vm {
 
       params.pop()
 
-      result = await this.callAsync(...params)
+      ref = await this.callAsync(...params)
     }
-
-    const ref = extractOpaqueRef(result)
 
     // detached async
     this._httpHook(vm, '/post-sync').catch(noop)
@@ -678,11 +705,14 @@ class Vm {
     )
 
     if (destroyNobakVdis) {
-      await asyncMap(await listNobakVbds(this, await this.getField('VM', ref, 'VBDs')), async vbd => {
+      // destroy the ignored VBDs on the VM snapshot
+      const ignoredSnapshotVbds = await listTaggedVdiVbds(this, await this.getField('VM', ref, 'VBDs'), ignoredVdisTag)
+      await asyncMap(ignoredSnapshotVbds, async vbd => {
         try {
           await this.VDI_destroy(vbd.VDI)
         } catch (error) {
-          warn('VM_snapshot, failed to destroy snapshot NOBAK VDI', {
+          warn('VM_snapshot, failed to destroy ignored snapshot VDI', {
+            error,
             vdiRef: vbd.VDI,
             vmRef,
             vmSnapshotRef: ref,
@@ -693,6 +723,11 @@ class Vm {
 
     return ref
   }
+
+  async disableChangedBlockTracking(vmRef) {
+    const vdiRefs = await this.VM_getDisks(vmRef)
+    await Promise.all(vdiRefs.map(vdiRef => this.call('VDI.disable_cbt', vdiRef)))
+  }
 }
 export default Vm
 
@@ -700,5 +735,6 @@ decorateClass(Vm, {
   checkpoint: defer,
   create: defer,
   export: defer,
+  coalesceLeaf: defer,
   snapshot: defer,
 })

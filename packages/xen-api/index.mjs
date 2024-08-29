@@ -5,24 +5,29 @@ import ms from 'ms'
 import httpRequest from 'http-request-plus'
 import map from 'lodash/map.js'
 import noop from 'lodash/noop.js'
-import ProxyAgent from 'proxy-agent'
+import Obfuscate from '@vates/obfuscate'
+import { Agent, ProxyAgent, request } from 'undici'
 import { coalesceCalls } from '@vates/coalesce-calls'
 import { Collection } from 'xo-collection'
+import { compose } from '@vates/compose'
+import { createLogger } from '@xen-orchestra/log'
 import { EventEmitter } from 'events'
 import { Index } from 'xo-collection/index.js'
+import { jsonHash } from '@vates/json-hash'
 import { cancelable, defer, fromCallback, ignoreErrors, pDelay, pRetry, pTimeout } from 'promise-toolbox'
 import { limitConcurrency } from 'limit-concurrency-decorator'
 import { decorateClass } from '@vates/decorate-with'
+import { ProxyAgent as HttpProxyAgent } from 'proxy-agent'
 
-import debug from './_debug.mjs'
 import getTaskResult from './_getTaskResult.mjs'
 import isGetAllRecordsMethod from './_isGetAllRecordsMethod.mjs'
 import isReadOnlyCall from './_isReadOnlyCall.mjs'
 import makeCallSetting from './_makeCallSetting.mjs'
 import parseUrl from './_parseUrl.mjs'
 import Ref from './_Ref.mjs'
-import replaceSensitiveValues from './_replaceSensitiveValues.mjs'
 import transports from './transports/index.mjs'
+
+const { debug } = createLogger('xen-api')
 
 // ===================================================================
 
@@ -134,14 +139,39 @@ export class Xapi extends EventEmitter {
       delete url.password
     }
 
+    const { httpProxy } = opts
     this._allowUnauthorized = opts.allowUnauthorized
-    let { httpProxy } = opts
+    const dispatcherOpts = {
+      bodyTimeout: this._httpInactivityTimeout,
+      headersTimeout: this._httpInactivityTimeout,
+      maxRedirections: 3,
+    }
+    const tlsOpts = {
+      minVersion: 'TLSv1',
+      rejectUnauthorized: !opts.allowUnauthorized,
+    }
     if (httpProxy !== undefined) {
-      if (httpProxy.startsWith('https:')) {
-        httpProxy = parseUrl(httpProxy)
-        httpProxy.rejectUnauthorized = !opts.allowUnauthorized
-      }
-      this._httpAgent = new ProxyAgent(httpProxy)
+      this._httpAgent = new HttpProxyAgent({
+        getProxyForUrl: () => httpProxy,
+        rejectUnauthorized: !opts.allowUnauthorized,
+      })
+
+      const uri = new URL(httpProxy)
+      const token = 'Basic ' + Buffer.from(`${uri.username}:${uri.password}`).toString('base64')
+      this._undiciDispatcher = new ProxyAgent({
+        ...dispatcherOpts,
+
+        proxyTls: tlsOpts,
+        requestTls: tlsOpts,
+        token,
+        uri,
+      })
+    } else {
+      this._undiciDispatcher = new Agent({
+        ...dispatcherOpts,
+
+        connect: tlsOpts,
+      })
     }
     this._setUrl(url)
 
@@ -175,10 +205,6 @@ export class Xapi extends EventEmitter {
 
       this.watchEvents()
     }
-  }
-
-  get httpAgent() {
-    return this._httpAgent
   }
 
   get readOnly() {
@@ -233,7 +259,7 @@ export class Xapi extends EventEmitter {
     try {
       await this._sessionOpen()
 
-      debug('%s: connected', this._humanId)
+      debug(this._humanId + ': connected')
       this._status = CONNECTED
       this._resolveConnected()
       this._resolveConnected = undefined
@@ -266,7 +292,7 @@ export class Xapi extends EventEmitter {
       ignoreErrors.call(this._call('session.logout', [sessionId]))
     }
 
-    debug('%s: disconnected', this._humanId)
+    debug(this._humanId + ': disconnected')
 
     this._status = DISCONNECTED
     this._resolveDisconnected()
@@ -277,6 +303,10 @@ export class Xapi extends EventEmitter {
   // ===========================================================================
   // RPC calls
   // ===========================================================================
+
+  computeCacheKey(...args) {
+    return jsonHash(args)
+  }
 
   // this should be used for instantaneous calls, otherwise use `callAsync`
   call(method, ...args) {
@@ -362,7 +392,16 @@ export class Xapi extends EventEmitter {
     if (value === null) {
       return this.call(`${type}.remove_from_${field}`, ref, entry).then(noop)
     }
+
     while (true) {
+      // First, remove any previous value to avoid triggering an unnecessary
+      // `MAP_DUPLICATE_KEY` error which will appear in the XAPI logs
+      //
+      // This is safe because this method does not throw if the entry is missing.
+      //
+      // See https://xcp-ng.org/forum/post/68761
+      await this.call(`${type}.remove_from_${field}`, ref, entry)
+
       try {
         await this.call(`${type}.add_to_${field}`, ref, entry, value)
         return
@@ -371,7 +410,6 @@ export class Xapi extends EventEmitter {
           throw error
         }
       }
-      await this.call(`${type}.remove_from_${field}`, ref, entry)
     }
   }
 
@@ -389,6 +427,9 @@ export class Xapi extends EventEmitter {
       query.task_id = taskRef
       pTaskResult = this.watchTask(taskRef)
 
+      // the promise will be used later
+      pTaskResult.catch(noop)
+
       if (typeof $cancelToken.addHandler === 'function') {
         $cancelToken.addHandler(() => pTaskResult)
       }
@@ -396,36 +437,41 @@ export class Xapi extends EventEmitter {
 
     let url = new URL('http://localhost')
     url.protocol = this._url.protocol
-    url.pathname = pathname
-    url.search = new URLSearchParams(query)
     await this._setHostAddressInUrl(url, host)
 
     const response = await this._addSyncStackTrace(
       pRetry(
-        async () =>
-          httpRequest(url, {
-            rejectUnauthorized: !this._allowUnauthorized,
-
-            // this is an inactivity timeout (unclear in Node doc)
-            timeout: this._httpInactivityTimeout,
-
-            maxRedirects: 0,
-
-            // Support XS <= 6.5 with Node => 12
-            minVersion: 'TLSv1',
-            agent: this.httpAgent,
-
+        async () => {
+          return request(url, {
+            dispatcher: this._undiciDispatcher,
+            maxRedirections: 0,
+            method: 'GET',
+            path: pathname,
+            query,
             signal: $cancelToken,
-          }),
+          }).then(response => {
+            const { statusCode } = response
+            if (((statusCode / 100) | 0) === 2) {
+              return response
+            }
+            const error = new Error(`unexpected ${response.statusCode}`)
+            Object.defineProperty(error, 'response', { value: response })
+            throw error
+          })
+        },
         {
           when: error => error.response !== undefined && error.response.statusCode === 302,
           onRetry: async error => {
             const response = error.response
-            if (response === undefined) {
+            if (response === undefined || response.body === undefined) {
               throw error
             }
-            response.destroy()
+            response.body.on('error', noop)
+            response.body.destroy()
             url = await this._replaceHostAddressInUrl(new URL(response.headers.location, url))
+            query = Object.fromEntries(url.searchParams.entries())
+            pathname = url.pathname
+            url.pathname = url.search = ''
           },
         }
       )
@@ -451,6 +497,9 @@ export class Xapi extends EventEmitter {
     if (taskRef !== undefined) {
       query.task_id = taskRef
       pTaskResult = this.watchTask(taskRef)
+
+      // the promise will be used later
+      pTaskResult.catch(noop)
 
       if (typeof $cancelToken.addHandler === 'function') {
         $cancelToken.addHandler(() => pTaskResult)
@@ -481,8 +530,7 @@ export class Xapi extends EventEmitter {
 
     const doRequest = (url, opts) =>
       httpRequest(url, {
-        agent: this.httpAgent,
-
+        agent: this._httpAgent,
         body,
         headers,
         method: 'PUT',
@@ -737,7 +785,7 @@ export class Xapi extends EventEmitter {
     const startTime = Date.now()
     try {
       const result = await pTimeout.call(this._addSyncStackTrace(this._transport(method, args)), timeout)
-      debug('%s: %s(...) [%s] ==> %s', this._humanId, method, ms(Date.now() - startTime), kindOf(result))
+      debug(`${this._humanId}: ${method}(...) [${ms(Date.now() - startTime)}] ==> ${kindOf(result)}`)
       return result
     } catch (error) {
       // do not log the session ID
@@ -750,12 +798,10 @@ export class Xapi extends EventEmitter {
         method,
         params:
           // it pass server's credentials as param
-          method === 'session.login_with_password'
-            ? '* obfuscated *'
-            : replaceSensitiveValues(params, '* obfuscated *'),
+          method === 'session.login_with_password' ? '* obfuscated *' : Obfuscate.replace(params, '* obfuscated *'),
       }
 
-      debug('%s: %s(...) [%s] =!> %s', this._humanId, method, ms(Date.now() - startTime), error)
+      debug(`${this._humanId}: ${method} [${ms(Date.now() - startTime)}] =!> ${error}`)
 
       throw error
     }
@@ -799,7 +845,7 @@ export class Xapi extends EventEmitter {
       this._status !== DISCONNECTED && error?.code === 'SESSION_INVALID' && this._auth.password !== undefined,
     onRetry: () => this._sessionOpen(),
   }
-  async _sessionCall(method, args, timeout) {
+  async _sessionCall(method, args) {
     if (method.startsWith('session.')) {
       return Promise.reject(new Error('session.*() methods are disabled from this interface'))
     }
@@ -814,7 +860,7 @@ export class Xapi extends EventEmitter {
           newArgs.push.apply(newArgs, args)
         }
 
-        return this._call(method, newArgs, timeout)
+        return this._call(method, newArgs)
       }, this._sessionCallRetryOptions)
     } catch (error) {
       if (error?.code === 'SESSION_INVALID') {
@@ -948,12 +994,8 @@ export class Xapi extends EventEmitter {
 
     this._humanId = `${this._auth.user ?? 'unknown'}@${url.hostname}`
     this._transport = this._createTransport({
-      secureOptions: {
-        minVersion: 'TLSv1',
-        rejectUnauthorized: !this._allowUnauthorized,
-      },
+      dispatcher: this._undiciDispatcher,
       url,
-      agent: this.httpAgent,
     })
     this._url = url
   }
@@ -1373,8 +1415,50 @@ export class Xapi extends EventEmitter {
   }
 }
 
+function cachable(fn, getCache) {
+  return async function (...args) {
+    const cache = getCache(args)
+    if (cache === undefined) {
+      return fn.apply(this, args)
+    }
+
+    const key = this.computeCacheKey(...args)
+    if (cache.has(key)) {
+      return cache.get(key)
+    }
+    const promise = fn.apply(this, args)
+    cache.set(key, promise)
+    try {
+      return promise
+    } catch (error) {
+      cache.delete(key)
+      throw error
+    }
+  }
+}
+
 decorateClass(Xapi, {
-  callAsync: cancelable,
+  call: [
+    cachable,
+    args => {
+      if (typeof args[0] !== 'string') {
+        return args.shift()
+      }
+    },
+  ],
+  callAsync: compose([
+    [
+      cachable,
+      args => {
+        const maybeCache = args[1]
+        if (typeof maybeCache !== 'string') {
+          args.splice(1, 1)
+          return maybeCache
+        }
+      },
+    ],
+    cancelable,
+  ]),
   getResource: cancelable,
   putResource: cancelable,
 })

@@ -1,22 +1,20 @@
 <template>
   <div>
-    <img alt="Not found" src="../assets/page-not-found.svg" />
+    <img alt="" src="../assets/page-not-found.svg" />
     <p class="numeric">404</p>
-    <p class="text">{{ $t("page-not-found") }}</p>
-    <UiButton @click="router.push({ name: 'home' })">{{
-      $t("back-pool-dashboard")
-    }}</UiButton>
+    <p class="text">{{ $t('page-not-found') }}</p>
+    <UiButton @click="router.push({ name: 'home' })">{{ $t('back-pool-dashboard') }}</UiButton>
   </div>
 </template>
 
 <script setup lang="ts">
-import UiButton from "@/components/ui/UiButton.vue";
-import { usePageTitleStore } from "@/stores/page-title.store";
-import { useI18n } from "vue-i18n";
-import { useRouter } from "vue-router";
+import { usePageTitleStore } from '@/stores/page-title.store'
+import UiButton from '@core/components/button/UiButton.vue'
+import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 
-const router = useRouter();
-usePageTitleStore().setTitle(useI18n().t("not-found"));
+const router = useRouter()
+usePageTitleStore().setTitle(useI18n().t('not-found'))
 </script>
 
 <style lang="postcss" scoped>
@@ -32,7 +30,7 @@ img {
   width: 30%;
 }
 .numeric {
-  color: var(--color-extra-blue-base);
+  color: var(--color-purple-base);
   font-size: 96px;
   font-weight: 900;
   letter-spacing: 1em;
@@ -42,7 +40,7 @@ img {
 }
 
 .text {
-  color: var(--color-extra-blue-base);
+  color: var(--color-purple-base);
   font-size: 36px;
   font-weight: 400;
   line-height: 150%;

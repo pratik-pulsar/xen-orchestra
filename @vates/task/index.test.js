@@ -3,6 +3,7 @@
 const assert = require('node:assert').strict
 const { describe, it } = require('test')
 
+const { makeOnProgress } = require('./combineEvents.js')
 const { Task } = require('./index.js')
 
 const noop = Function.prototype
@@ -162,6 +163,44 @@ describe('Task', function () {
     })
   })
 
+  describe('.run()', function () {
+    function fn(...args) {
+      Task.set('baz', 'qux')
+
+      return [this, ...args]
+    }
+    const obj = { fn }
+
+    it('accepts optional options', async function () {
+      assert.deepEqual(
+        await Task.run(
+          {
+            properties: { foo: 'bar' },
+            onProgress: makeOnProgress({
+              onRootTaskEnd(log) {
+                assert.deepEqual(log.properties, { __proto__: null, foo: 'bar', baz: 'qux' })
+              },
+            }),
+          },
+          fn
+        ),
+        [undefined]
+      )
+    })
+
+    it('accepts optional arguments', async function () {
+      assert.deepEqual(await Task.run(fn, 'foo', 'bar'), [undefined, 'foo', 'bar'])
+    })
+
+    it('accepts optional context', async function () {
+      assert.deepEqual(await Task.run.call('foo', fn), ['foo'])
+    })
+
+    it('accepts a method name instead of a function', async function () {
+      assert.deepEqual(await Task.run.call(obj, 'fn'), [obj])
+    })
+  })
+
   describe('.set()', function () {
     it('does nothing when run outside a task', function () {
       Task.set('progress', 10)
@@ -175,6 +214,31 @@ describe('Task', function () {
           name: 'progress',
           type: 'property',
           value: 10,
+        })
+      })
+    })
+  })
+
+  describe('#set()', function () {
+    const name = 'progress'
+    const value = 10
+
+    it('throws when the task is not started', function () {
+      const task = createTask()
+      assert.throws(() => task.set(name, value), { message: 'task has not started yet' })
+    })
+
+    it(`emits an property message`, async function () {
+      const task = createTask()
+      await task.run(async () => {
+        await Task.run(() => {
+          task.set(name, value)
+
+          assertEvent(task, {
+            name,
+            type: 'property',
+            value,
+          })
         })
       })
     })
@@ -197,6 +261,30 @@ describe('Task', function () {
       })
     })
   })
+
+  for (const type of ['info', 'warning']) {
+    describe(`#${type}()`, function () {
+      it('throws when the task is not started', function () {
+        const task = createTask()
+        assert.throws(() => task[type]('foo'), { message: 'task has not started yet' })
+      })
+
+      it(`emits an ${type} message`, async function () {
+        const task = createTask()
+        await task.run(async () => {
+          await Task.run(() => {
+            task[type]('foo')
+
+            assertEvent(task, {
+              data: undefined,
+              message: 'foo',
+              type,
+            })
+          })
+        })
+      })
+    })
+  }
 
   describe('#id', function () {
     it('can be set', function () {

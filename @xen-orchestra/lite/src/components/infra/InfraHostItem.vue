@@ -1,77 +1,49 @@
 <template>
-  <li v-if="host !== undefined" class="infra-host-item">
-    <InfraItemLabel
-      :active="isCurrentHost"
-      :icon="faServer"
-      :route="{ name: 'host.dashboard', params: { uuid: host.uuid } }"
-    >
-      {{ host.name_label || "(Host)" }}
-      <template #actions>
-        <InfraAction
-          v-if="isPoolMaster"
-          v-tooltip="'Master'"
-          :icon="faStar"
-          class="master-icon"
-        />
-        <InfraAction
-          :icon="isExpanded ? faAngleDown : faAngleUp"
-          @click="toggle()"
-        />
+  <TreeItem v-if="host !== undefined" :expanded="isExpanded" class="infra-host-item">
+    <TreeItemLabel :icon="faServer" :route="{ name: 'host.dashboard', params: { uuid: host.uuid } }" @toggle="toggle()">
+      {{ host.name_label || '(Host)' }}
+      <template #addons>
+        <UiIcon v-if="isPoolMaster" v-tooltip="$t('master')" :icon="faStar" color="warning" />
+        <UiCounter v-if="isReady" v-tooltip="$t('running-vm', { count: vmCount })" :value="vmCount" color="info" />
       </template>
-    </InfraItemLabel>
-
-    <InfraVmList v-show="isExpanded" :host-opaque-ref="hostOpaqueRef" />
-  </li>
+    </TreeItemLabel>
+    <template #sublist>
+      <TreeList>
+        <InfraVmItems :host-opaque-ref="hostOpaqueRef" />
+      </TreeList>
+    </template>
+  </TreeItem>
 </template>
 
 <script lang="ts" setup>
-import InfraAction from "@/components/infra/InfraAction.vue";
-import InfraItemLabel from "@/components/infra/InfraItemLabel.vue";
-import InfraVmList from "@/components/infra/InfraVmList.vue";
-import { useHostCollection } from "@/stores/xen-api/host.store";
-import { usePoolCollection } from "@/stores/xen-api/pool.store";
-import { vTooltip } from "@/directives/tooltip.directive";
-import type { XenApiHost } from "@/libs/xen-api/xen-api.types";
-import { useUiStore } from "@/stores/ui.store";
-import {
-  faAngleDown,
-  faAngleUp,
-  faServer,
-  faStar,
-} from "@fortawesome/free-solid-svg-icons";
-import { useToggle } from "@vueuse/core";
-import { computed } from "vue";
+import InfraVmItems from '@/components/infra/InfraVmItems.vue'
+import type { XenApiHost } from '@/libs/xen-api/xen-api.types'
+import { useHostStore } from '@/stores/xen-api/host.store'
+import { usePoolStore } from '@/stores/xen-api/pool.store'
+import { useVmStore } from '@/stores/xen-api/vm.store'
+import UiIcon from '@core/components/icon/UiIcon.vue'
+import TreeItem from '@core/components/tree/TreeItem.vue'
+import TreeItemLabel from '@core/components/tree/TreeItemLabel.vue'
+import TreeList from '@core/components/tree/TreeList.vue'
+import UiCounter from '@core/components/UiCounter.vue'
+import { vTooltip } from '@core/directives/tooltip.directive'
+import { faServer, faStar } from '@fortawesome/free-solid-svg-icons'
+import { useToggle } from '@vueuse/shared'
+import { computed } from 'vue'
 
 const props = defineProps<{
-  hostOpaqueRef: XenApiHost["$ref"];
-}>();
+  hostOpaqueRef: XenApiHost['$ref']
+}>()
 
-const { getByOpaqueRef } = useHostCollection();
-const host = computed(() => getByOpaqueRef(props.hostOpaqueRef));
+const { getByOpaqueRef } = useHostStore().subscribe()
+const host = computed(() => getByOpaqueRef(props.hostOpaqueRef))
 
-const { pool } = usePoolCollection();
-const isPoolMaster = computed(() => pool.value?.master === props.hostOpaqueRef);
+const { pool } = usePoolStore().subscribe()
+const isPoolMaster = computed(() => pool.value?.master === props.hostOpaqueRef)
 
-const uiStore = useUiStore();
+const { recordsByHostRef, isReady } = useVmStore().subscribe()
 
-const isCurrentHost = computed(
-  () => props.hostOpaqueRef === uiStore.currentHostOpaqueRef
-);
-const [isExpanded, toggle] = useToggle(true);
+const vmCount = computed(() => recordsByHostRef.value.get(props.hostOpaqueRef)?.length ?? 0)
+
+const [isExpanded, toggle] = useToggle(true)
 </script>
-
-<style lang="postcss" scoped>
-.infra-host-item:deep(.link),
-.infra-host-item:deep(.link-placeholder) {
-  padding-left: 2rem;
-}
-
-.infra-vm-list:deep(.link),
-.infra-vm-list:deep(.link-placeholder) {
-  padding-left: 3rem;
-}
-
-.master-icon {
-  color: var(--color-orange-world-base);
-}
-</style>

@@ -1,21 +1,21 @@
-<template>Chargement en cours...</template>
+<template>{{ $t('loading-in-progress') }}</template>
 
 <script lang="ts" setup>
-import { usePoolCollection } from "@/stores/xen-api/pool.store";
-import { whenever } from "@vueuse/core";
-import { useRouter } from "vue-router";
+import { usePoolStore } from '@/stores/xen-api/pool.store'
+import { whenever } from '@vueuse/core'
+import { useRouter } from 'vue-router'
 
-const router = useRouter();
+const router = useRouter()
 
-const { pool } = usePoolCollection();
+const { pool } = usePoolStore().subscribe()
 
 whenever(
   () => pool.value?.uuid,
-  (poolUuid) =>
+  poolUuid =>
     router.push({
-      name: "pool.dashboard",
+      name: 'pool.dashboard',
       params: { uuid: poolUuid },
     }),
   { immediate: true }
-);
+)
 </script>

@@ -14,7 +14,7 @@ It means you don't have a default SR set on the pool you are importing XOA on. T
 
 ## Unreachable after boot
 
-XOA uses HVM mode. If your physical host doesn't support virtualization extensions, XOA won't work. To check if your XenServer supports hardware assisted virtualization (HVM), you can enter this command in your host: `grep --color vmx /proc/cpuinfo`. If you don't have any result, it means XOA won't work on this hardware.
+XOA uses HVM mode. If your physical host doesn't support virtualization extensions, XOA won't work. To check if your XCP-ng/XenServer supports hardware assisted virtualization (HVM), you can enter this command in your host: `grep --color vmx /proc/cpuinfo`. If you don't have any result, it means XOA won't work on this hardware.
 
 ## Set or recover XOA VM password
 
@@ -27,12 +27,15 @@ xe vm-param-set uuid=<UUID> xenstore-data:vm-data/system-account-xoa-password=<p
 Where UUID is the uuid of your XOA VM.
 
 Then you need to restart the VM.
+You can now login through SSH with the `xoa` username and password you defined in the previous command.
 
 ## Recover web login password
 
 If you have lost your password to log in to the XOA webpage, you can reset it. From the XOA CLI (for login/access info for the CLI, [see here](xoa.md#first-console-connection)), use the following command and insert the email/account you wish to recover:
 
-`xo-server-recover-account youremail@here.com`
+```sh
+sudo xo-server-recover-account youremail@here.com
+```
 
 It will prompt you to set a new password. If you provide an email here that does not exist in XOA yet, it will create a new account using it, with admin permissions - you can use that new account to log in as well.
 
@@ -72,8 +75,6 @@ Go into Settings/Logs view.
 
 ### CLI
 
-All XOA logs are stored in `/var/log/syslog` (on the XO Appliance).
-
 To filter only what you need, you can use `journalctl`. Below is an example to filter only logs for `xo-server`:
 
 ```sh
@@ -107,9 +108,13 @@ If you have something completely different than that, or error messages, lost pa
 
 ### Network issues
 
-You can see your current network configuration by running `ifconfig eth0`. If you have an external firewall, please check that you allow the XOA's IP.
+You can see your current network configuration by running `ifconfig` (default interface is called `enX0` or `eth0`). If you have an external firewall, please check that you allow the XOA's IP.
 
 You can modify the IP configuration with `xoa network static` (for a static IP address) or `xoa network dhcp` to use DHCP.
+
+### Stats not working
+
+If statistics (all VMs and hosts) are not showing for a specific pool, check if there is a _Backup network_ configured on your pool (setting is in the _Advanced_ tab of the pool) and make sure XO can access all hosts of the pool via this network.
 
 ### Memory
 
@@ -179,23 +184,13 @@ openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -nodes -days 36
 systemctl restart xo-server.service
 ```
 
-### Logs
-
-The system logs are visible by using this command:
-
-```sh
-tail -f /var/log/syslog
-```
-
-You can read more about logs [in the dedicated logs chapter](troubleshooting.md#logs).
-
 ### Ghost tasks
 
 If you have ghost tasks accumulating in your Xen Orchestra you can try the following actions in order:
 
 1. refresh the web page
 1. disconnect and reconnect the Xen pool/server owning the tasks
-1. restart the XenAPI Toolstack of the XenServer master
+1. restart the XenAPI Toolstack of the XCP-ng/XenServer master
 1. restart xo-server
 
 ### Redownload and rebuild

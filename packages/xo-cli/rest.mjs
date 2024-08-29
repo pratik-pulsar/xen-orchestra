@@ -2,12 +2,14 @@ import { basename, join } from 'node:path'
 import { createWriteStream } from 'node:fs'
 import { normalize } from 'node:path/posix'
 import { parse as parseContentType } from 'content-type'
-import { pipeline } from 'node:stream/promises'
+import { pipeline } from 'node:stream'
+import { pipeline as pPipeline } from 'node:stream/promises'
+import { readChunk } from '@vates/read-chunk'
 import getopts from 'getopts'
 import hrp from 'http-request-plus'
 import merge from 'lodash/merge.js'
-
-import * as config from './config.mjs'
+import set from 'lodash/set.js'
+import split2 from 'split2'
 
 const PREFIX = '/rest/v0/'
 
@@ -19,15 +21,17 @@ function addPrefix(suffix) {
   return path
 }
 
+const noop = Function.prototype
+
 function parseParams(args) {
   const params = {}
   for (const arg of args) {
     const i = arg.indexOf('=')
     if (i === -1) {
-      params[arg] = ''
+      set(params, arg, '')
     } else {
       const value = arg.slice(i + 1)
-      params[arg.slice(0, i)] = value.startsWith('json:') ? JSON.parse(value.slice(5)) : value
+      set(params, arg.slice(0, i), value.startsWith('json:') ? JSON.parse(value.slice(5)) : value)
     }
   }
   return params
@@ -60,7 +64,7 @@ const COMMANDS = {
     const response = await this.exec(path, { query: parseParams(rest) })
 
     if (output !== '') {
-      return pipeline(
+      return pPipeline(
         response,
         output === '-'
           ? process.stdout
@@ -84,6 +88,13 @@ const COMMANDS = {
       }
 
       return this.json ? JSON.stringify(result, null, 2) : result
+    } else if (type === 'application/x-ndjson') {
+      const lines = pipeline(response, split2(), noop)
+      let line
+      while ((line = await readChunk(lines)) !== null) {
+        const data = JSON.parse(line)
+        console.log(this.json ? JSON.stringify(data, null, 2) : data)
+      }
     } else {
       throw new Error('unsupported content-type ' + type)
     }
@@ -132,7 +143,7 @@ export async function rest(args) {
     _: [command, ...rest],
   } = getopts(args, { boolean: ['json'], stopEarly: true })
 
-  const { allowUnauthorized, server, token } = await config.load()
+  const { allowUnauthorized, server, token } = await this.getServerConfig()
 
   const baseUrl = server
   const baseOpts = {
@@ -140,6 +151,7 @@ export async function rest(args) {
       cookie: 'authenticationToken=' + token,
     },
     rejectUnauthorized: !allowUnauthorized,
+    timeout: 0,
   }
 
   if (command === undefined || !(command in COMMANDS)) {
@@ -148,7 +160,7 @@ export async function rest(args) {
 
   return COMMANDS[command].call(
     {
-      exec(path, { query = {}, ...opts } = {}) {
+      async exec(path, { query = {}, ...opts } = {}) {
         const url = new URL(baseUrl)
 
         const i = path.indexOf('?')
@@ -167,7 +179,17 @@ export async function rest(args) {
           }
         }
 
-        return hrp(url, merge({}, baseOpts, opts))
+        try {
+          return await hrp(url, merge({}, baseOpts, opts))
+        } catch (error) {
+          const { response } = error
+          if (response === undefined) {
+            throw error
+          }
+
+          console.error(response.statusCode, response.statusMessage)
+          throw await response.text()
+        }
       },
       json,
     },

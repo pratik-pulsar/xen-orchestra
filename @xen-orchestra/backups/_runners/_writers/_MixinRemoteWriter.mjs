@@ -8,6 +8,7 @@ import { HealthCheckVmBackup } from '../../HealthCheckVmBackup.mjs'
 import { ImportVmBackup } from '../../ImportVmBackup.mjs'
 import { Task } from '../../Task.mjs'
 import * as MergeWorker from '../../merge-worker/index.mjs'
+import ms from 'ms'
 
 const { info, warn } = createLogger('xo:backups:MixinBackupWriter')
 
@@ -37,6 +38,7 @@ export const MixinRemoteWriter = (BaseClass = Object) =>
             },
             lock: false,
             mergeBlockConcurrency: this._config.mergeBlockConcurrency,
+            removeTmp: true,
           })
         })
       } catch (error) {
@@ -77,11 +79,11 @@ export const MixinRemoteWriter = (BaseClass = Object) =>
     healthCheck() {
       const sr = this._healthCheckSr
       assert.notStrictEqual(sr, undefined, 'SR should be defined before making a health check')
-      assert.notStrictEqual(
-        this._metadataFileName,
-        undefined,
-        'Metadata file name should be defined before making a health check'
-      )
+      if (this._metadataFileName === undefined) {
+        // this can happen when making a mirror backup with nothing to transfer
+        Task.info('no health check, since no backup have been transferred')
+        return
+      }
       return Task.run(
         {
           name: 'health check',
@@ -100,10 +102,17 @@ export const MixinRemoteWriter = (BaseClass = Object) =>
               additionnalVmTag: 'xo:no-bak=Health Check',
             },
           }).run()
-          const restoredVm = xapi.getObject(restoredId)
+          let restoredVm
           try {
+            restoredVm = xapi.getObject(restoredId)
+          } catch (err) {
+            restoredVm = await xapi.waitObject(restoredId)
+          }
+          try {
+            const timeout = ms(this._settings.healthCheckTimeout)
             await new HealthCheckVmBackup({
               restoredVm,
+              timeout,
               xapi,
             }).run()
           } finally {
@@ -113,13 +122,13 @@ export const MixinRemoteWriter = (BaseClass = Object) =>
       )
     }
 
-    _isAlreadyTransferred(timestamp) {
+    async _isAlreadyTransferred(timestamp) {
       const vmUuid = this._vmUuid
       const adapter = this._adapter
       const backupDir = getVmBackupDir(vmUuid)
       try {
         const actualMetadata = JSON.parse(
-          adapter._handler.readFile(`${backupDir}/${formatFilenameDate(timestamp)}.json`)
+          await adapter._handler.readFile(`${backupDir}/${formatFilenameDate(timestamp)}.json`)
         )
         return actualMetadata
       } catch (error) {}

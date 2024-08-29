@@ -4,17 +4,21 @@ import _, { messages } from 'intl'
 import ActionButton from 'action-button'
 import ActionRowButton from 'action-row-button'
 import Component from 'base-component'
+import Copiable from 'copiable'
 import Icon from 'icon'
 import renderXoItem, { Network, Sr } from 'render-xo-item'
 import SelectFiles from 'select-files'
 import TabButton from 'tab-button'
+import Tooltip from 'tooltip'
 import Upgrade from 'xoa-upgrade'
 import { addSubscriptions, connectStore } from 'utils'
 import { Container, Row, Col } from 'grid'
 import { CustomFields } from 'custom-fields'
 import { injectIntl } from 'react-intl'
 import { forEach, map, values } from 'lodash'
+import { SelectSr } from 'select-objects'
 import { Text, XoSelect } from 'editable'
+import { Toggle } from 'form'
 import {
   createGetObject,
   createGetObjectsOfType,
@@ -24,8 +28,12 @@ import {
 } from 'selectors'
 import {
   editPool,
+  enableHa,
+  disableHa,
   installSupplementalPackOnAllHosts,
   isSrWritable,
+  rollingPoolReboot,
+  setDefaultSr,
   setHostsMultipathing,
   setPoolMaster,
   setRemoteSyslogHost,
@@ -45,7 +53,7 @@ import { confirm } from '../../common/modal'
 import { error } from '../../common/notification'
 import { Host, Pool } from '../../common/render-xo-item'
 import { isAdmin } from '../../common/selectors'
-import { SOURCES, getXoaPlan } from '../../common/xoa-plans'
+import { ENTERPRISE, SOURCES, getXoaPlan } from '../../common/xoa-plans'
 
 const BindLicensesButton = decorate([
   addSubscriptions({
@@ -65,7 +73,7 @@ const BindLicensesButton = decorate([
         }
 
         const hostsWithoutLicense = poolHosts.filter(host => {
-          const license = this.state.xcpngLicenseByBoundObjectId[host.id]
+          const license = this.state.xcpngLicenseByBoundObjectId?.[host.id]
           return license === undefined || license.expires < Date.now()
         })
         const licenseIdByHost = await confirm({
@@ -189,6 +197,89 @@ class PoolMaster extends Component {
   }
 }
 
+@connectStore(() => ({
+  defaultSr: createGetObject((_, { pool }) => pool.default_SR),
+}))
+class SelectDefaultSr extends Component {
+  render() {
+    const { defaultSr, pool } = this.props
+
+    return (
+      <XoSelect onChange={setDefaultSr} value={defaultSr} xoType='SR' predicate={sr => sr.$pool === pool.id}>
+        {defaultSr !== undefined ? <Sr id={defaultSr.id} /> : _('noValue')}
+      </XoSelect>
+    )
+  }
+}
+
+class EnableHaModal extends Component {
+  state = {
+    srs: Object.values(this.props.srs),
+  }
+
+  get value() {
+    return this.state.srs
+  }
+  render() {
+    return (
+      <div>
+        <strong>{_('poolHaSelectSrs')}</strong>
+        <br />
+        {_('poolHaSelectSrsDetails')}
+        <SelectSr
+          multi
+          value={this.state.srs}
+          onChange={srs => this.setState({ srs: srs.map(sr => sr.id) })}
+          predicate={sr => sr.shared && isSrWritable(sr)}
+        />
+      </div>
+    )
+  }
+}
+
+class ToggleHa extends Component {
+  // state.busy is used to prevent interaction with toggle while HA is being enabled or disabled
+  state = {
+    busy: false,
+  }
+
+  _onChange = async value => {
+    if (value) {
+      const haSrs = await confirm({
+        body: <EnableHaModal srs={this.props.pool.haSrs ?? []} />,
+        title: _('poolEnableHa'),
+        icon: 'pool',
+      })
+
+      try {
+        this.setState({ busy: true })
+        await enableHa({
+          pool: this.props.pool,
+          heartbeatSrs: haSrs,
+          configuration: this.props.pool.ha_configuration ?? {},
+        })
+      } finally {
+        this.setState({ busy: false })
+      }
+    } else {
+      await confirm({
+        title: _('poolDisableHa'),
+        body: _('poolDisableHaConfirm'),
+      })
+      try {
+        this.setState({ busy: true })
+        await disableHa(this.props.pool)
+      } finally {
+        this.setState({ busy: false })
+      }
+    }
+  }
+
+  render() {
+    return <Toggle value={this.props.pool.HA_enabled} onChange={this._onChange} disabled={this.state.busy} />
+  }
+}
+
 @injectIntl
 @connectStore(() => {
   const getHosts = createGetObjectsOfType('host')
@@ -237,6 +328,10 @@ export default class TabAdvanced extends Component {
     plugins => plugins !== undefined && plugins.some(plugin => plugin.name === 'netbox' && plugin.loaded)
   )
 
+  _onChangeAutoPoweron = value => editPool(this.props.pool, { auto_poweron: value })
+
+  _onChangeMigrationCompression = value => editPool(this.props.pool, { migrationCompression: value })
+
   _onChangeBackupNetwork = backupNetwork => editPool(this.props.pool, { backupNetwork: backupNetwork.id })
 
   _removeBackupNetwork = () => editPool(this.props.pool, { backupNetwork: null })
@@ -266,12 +361,24 @@ export default class TabAdvanced extends Component {
     const { enabled: hostsEnabledMultipathing, disabled: hostsDisabledMultipathing } = hostsByMultipathing
     const { crashDumpSr } = pool
     const crashDumpSrPredicate = this._getCrashDumpSrPredicate()
+    const isEnterprisePlan = getXoaPlan().value >= ENTERPRISE.value
+    const isMigrationCompressionAvailable = pool.migrationCompression !== undefined
+
     return (
       <div>
         <Container>
-          {this._isNetboxPluginLoaded() && (
-            <Row>
-              <Col className='text-xs-right'>
+          <Row>
+            <Col className='text-xs-right'>
+              <TabButton
+                btnStyle='warning'
+                handler={rollingPoolReboot}
+                handlerParam={pool}
+                icon='pool-rolling-reboot'
+                labelId='rollingPoolReboot'
+                disabled={!isEnterprisePlan}
+                tooltip={!isEnterprisePlan ? _('onlyAvailableToEnterprise') : undefined}
+              />
+              {this._isNetboxPluginLoaded() && (
                 <TabButton
                   btnStyle='primary'
                   handler={synchronizeNetbox}
@@ -279,17 +386,51 @@ export default class TabAdvanced extends Component {
                   icon='refresh'
                   labelId='syncNetbox'
                 />
-              </Col>
-            </Row>
-          )}
+              )}
+            </Col>
+          </Row>
           <Row>
             <Col>
               <h3>{_('xenSettingsLabel')}</h3>
               <table className='table'>
                 <tbody>
                   <tr>
+                    <th>{_('autoPowerOn')}</th>
+                    <td>
+                      <Toggle value={pool.auto_poweron} onChange={this._onChangeAutoPoweron} />
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>{_('migrationCompression')}</th>
+                    <td>
+                      <Tooltip
+                        content={isMigrationCompressionAvailable ? undefined : _('migrationCompressionDisabled')}
+                      >
+                        <Toggle
+                          value={pool.migrationCompression}
+                          onChange={this._onChangeMigrationCompression}
+                          disabled={!isMigrationCompressionAvailable}
+                        />
+                      </Tooltip>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>{_('poolHeartbeatSr')}</th>
+                    <td>
+                      <ul>
+                        {map(pool.haSrs, sr => (
+                          <li key={sr}>
+                            <Sr id={sr} />
+                          </li>
+                        ))}
+                      </ul>
+                    </td>
+                  </tr>
+                  <tr>
                     <th>{_('poolHaStatus')}</th>
-                    <td>{pool.HA_enabled ? _('poolHaEnabled') : _('poolHaDisabled')}</td>
+                    <td>
+                      <ToggleHa pool={pool} />
+                    </td>
                   </tr>
                   <tr>
                     <th>{_('setpoolMaster')}</th>
@@ -347,6 +488,12 @@ export default class TabAdvanced extends Component {
                           </div>
                         </form>
                       )}
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>{_('defaultSr')}</th>
+                    <td>
+                      <SelectDefaultSr pool={pool} />
                     </td>
                   </tr>
                   <tr>
@@ -440,9 +587,23 @@ export default class TabAdvanced extends Component {
                         value={migrationNetwork}
                         xoType='network'
                       >
-                        {migrationNetwork !== undefined ? <Network id={migrationNetwork.id} /> : _('noValue')}
+                        {pool.otherConfig['xo:migrationNetwork'] === undefined ? (
+                          _('noValue')
+                        ) : migrationNetwork !== undefined ? (
+                          <Network id={migrationNetwork.id} />
+                        ) : (
+                          <span className='text-danger'>
+                            {_('updateMissingNetwork', {
+                              networkID: (
+                                <Copiable data={pool.otherConfig['xo:migrationNetwork']}>
+                                  <strong>{pool.otherConfig['xo:migrationNetwork']}</strong>
+                                </Copiable>
+                              ),
+                            })}
+                          </span>
+                        )}
                       </XoSelect>{' '}
-                      {migrationNetwork !== undefined && (
+                      {pool.otherConfig['xo:migrationNetwork'] !== undefined && (
                         <a role='button' onClick={this._removeMigrationNetwork}>
                           <Icon icon='remove' />
                         </a>
@@ -458,9 +619,23 @@ export default class TabAdvanced extends Component {
                         value={backupNetwork}
                         xoType='network'
                       >
-                        {backupNetwork !== undefined ? <Network id={backupNetwork.id} /> : _('noValue')}
+                        {pool.otherConfig['xo:backupNetwork'] === undefined ? (
+                          _('noValue')
+                        ) : backupNetwork !== undefined ? (
+                          <Network id={backupNetwork.id} />
+                        ) : (
+                          <span className='text-danger'>
+                            {_('updateMissingNetwork', {
+                              networkID: (
+                                <Copiable data={pool.otherConfig['xo:backupNetwork']}>
+                                  <strong>{pool.otherConfig['xo:backupNetwork']}</strong>
+                                </Copiable>
+                              ),
+                            })}
+                          </span>
+                        )}
                       </XoSelect>{' '}
-                      {backupNetwork !== undefined && (
+                      {pool.otherConfig['xo:backupNetwork'] !== undefined && (
                         <a role='button' onClick={this._removeBackupNetwork}>
                           <Icon icon='remove' />
                         </a>

@@ -1,3 +1,4 @@
+import TTLCache from '@isaacs/ttlcache'
 import { asyncMap } from '@xen-orchestra/async-map'
 import { createLogger } from '@xen-orchestra/log'
 import { format } from 'json-rpc-peer'
@@ -10,14 +11,21 @@ import { moveFirst } from '../_moveFirst.mjs'
 
 const log = createLogger('xo:api:pool')
 
+const TTL_CACHE = 3e4
+const CACHE = new TTLCache({
+  ttl: TTL_CACHE,
+})
+
 // ===================================================================
 
 export async function set({
   pool,
 
+  auto_poweron,
   name_description: nameDescription,
   name_label: nameLabel,
   backupNetwork,
+  migrationCompression,
   migrationNetwork,
   suspendSr,
   crashDumpSr,
@@ -25,8 +33,10 @@ export async function set({
   pool = this.getXapiObject(pool)
 
   await Promise.all([
+    auto_poweron !== undefined && pool.update_other_config('auto_poweron', String(auto_poweron)),
     nameDescription !== undefined && pool.set_name_description(nameDescription),
     nameLabel !== undefined && pool.set_name_label(nameLabel),
+    migrationCompression !== undefined && pool.set_migration_compression(migrationCompression),
     migrationNetwork !== undefined && pool.update_other_config('xo:migrationNetwork', migrationNetwork),
     backupNetwork !== undefined && pool.update_other_config('xo:backupNetwork', backupNetwork),
     suspendSr !== undefined && pool.$call('set_suspend_image_SR', suspendSr === null ? Ref.EMPTY : suspendSr._xapiRef),
@@ -39,6 +49,10 @@ set.params = {
   id: {
     type: 'string',
   },
+  auto_poweron: {
+    type: 'boolean',
+    optional: true,
+  },
   name_label: {
     type: 'string',
     optional: true,
@@ -50,6 +64,10 @@ set.params = {
   },
   backupNetwork: {
     type: ['string', 'null'],
+    optional: true,
+  },
+  migrationCompression: {
+    type: 'boolean',
     optional: true,
   },
   migrationNetwork: {
@@ -106,6 +124,45 @@ setPoolMaster.params = {
 
 setPoolMaster.resolve = {
   host: ['host', 'host'],
+}
+
+// -------------------------------------------------------------------
+
+export async function disableHa({ pool }) {
+  await this.getXapi(pool).disableHa()
+}
+
+disableHa.params = {
+  pool: {
+    type: 'string',
+  },
+}
+
+disableHa.resolve = {
+  pool: ['pool', 'pool', 'administrate'],
+}
+
+// -------------------------------------------------------------------
+
+export async function enableHa({ pool, heartbeatSrs, configuration }) {
+  await this.getXapi(pool).enableHa(heartbeatSrs, configuration)
+}
+
+enableHa.params = {
+  pool: {
+    type: 'string',
+  },
+  heartbeatSrs: {
+    type: 'array',
+    items: { type: 'string' },
+  },
+  configuration: {
+    type: 'object',
+  },
+}
+
+enableHa.resolve = {
+  pool: ['pool', 'pool', 'administrate'],
 }
 
 // -------------------------------------------------------------------
@@ -200,6 +257,31 @@ rollingUpdate.resolve = {
 
 // -------------------------------------------------------------------
 
+export async function rollingReboot({ bypassBackupCheck, pool }) {
+  const poolId = pool.id
+  if (bypassBackupCheck) {
+    log.warn('pool.rollingReboot update with argument "bypassBackupCheck" set to true', { poolId })
+  } else {
+    await backupGuard.call(this, poolId)
+  }
+
+  await this.rollingPoolReboot(pool)
+}
+
+rollingReboot.params = {
+  bypassBackupCheck: {
+    default: false,
+    type: 'boolean',
+  },
+  pool: { type: 'string' },
+}
+
+rollingReboot.resolve = {
+  pool: ['pool', 'pool', 'administrate'],
+}
+
+// -------------------------------------------------------------------
+
 export async function getPatchesDifference({ source, target }) {
   return this.getPatchesDifference(target.id, source.id)
 }
@@ -254,6 +336,29 @@ getLicenseState.params = {
 
 getLicenseState.resolve = {
   pool: ['pool', 'pool', 'administrate'],
+}
+
+// -------------------------------------------------------------------
+
+export async function getGuestSecureBootReadiness({ pool, forceRefresh }) {
+  const xapi = this.getXapi(pool)
+  const poolRef = pool._xapiRef
+  const xapiMethodName = 'pool.get_guest_secureboot_readiness'
+
+  if (forceRefresh) {
+    CACHE.delete(xapi.computeCacheKey(xapiMethodName, poolRef))
+  }
+
+  return xapi.call(CACHE, xapiMethodName, poolRef)
+}
+
+getGuestSecureBootReadiness.params = {
+  id: { type: 'string' },
+  forceRefresh: { type: 'boolean', default: false },
+}
+
+getGuestSecureBootReadiness.resolve = {
+  pool: ['id', 'pool', null],
 }
 
 // -------------------------------------------------------------------

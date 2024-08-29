@@ -109,6 +109,22 @@ In the "Settings" then "Plugins" view, expand the SAML plugin configuration. The
 
 Save the configuration and then activate the plugin (button on top).
 
+#### Vendor specific
+
+##### Google Workspace - SAML [support.google.com](https://support.google.com/a/answer/6087519?hl=en#zippy=)
+
+Use the screenshots below as a reference as how to setup SAML with Google Workspace.
+
+
+> Note: Right now even when the authorization is successfull, you will be redirected to the `https://xo.company.net/signin` page. However, just browse directly into the bare URL `https://xo.company.net`, and you'll now be logged in and can use the XO-dashboard.
+
+The first login will create the user inside XO, as a non-privileged user. An administrator then has to promote the user to the apropriate group. (XO: Settings/Users).
+
+![](./assets/saml-googleworkspace1.png)
+
+Also make sure to adjust the SAML attribute mapping in the Google Workspace configuration. (Primary email -> email)
+![](./assets/saml-googleworkspace2.png)
+
 ### GitHub
 
 This plugin allows any GitHub user to authenticate to Xen Orchestra.
@@ -255,7 +271,7 @@ To create a new set of resources to delegate, go to the "Self Service" section i
 Only an admin can create a set of resources
 :::
 
-To allow people to create VMs as they want, we need to give them a _part_ of your XenServer resources (disk space, CPUs, RAM). You can call this "general quotas" if you like. But you first need to decide which resources will be used.
+To allow people to create VMs as they want, we need to give them a _part_ of your XCP-ng/XenServer resources (disk space, CPUs, RAM). You can call this "general quotas" if you like. But you first need to decide which resources will be used.
 
 In this example below, we'll create a set called **"sandbox"** with:
 
@@ -353,4 +369,4 @@ Now, the audit plugin will record users' actions and upload the last record in t
 
 ## Debugging
 
-If you can't log in, please check the logs of `xo-server` while you attempt to connect. It will give you hints about the error encountered. You can do that with a `tail -f /var/log/syslog -n 100` on your XOA.
+If you can't log in, please [check the logs of `xo-server`](https://xen-orchestra.com/docs/troubleshooting.html#logs).

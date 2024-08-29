@@ -1,55 +1,41 @@
 <template>
-  <ul class="infra-pool-list">
-    <li v-if="hasError" class="text-error">
-      {{ $t("error-no-data") }}
-    </li>
-    <InfraLoadingItem
-      v-else-if="!isReady || pool === undefined"
-      :icon="faBuilding"
-    />
-    <li v-else class="infra-pool-item">
-      <InfraItemLabel
-        :icon="faBuilding"
+  <TreeList class="infra-pool-list">
+    <TreeItem :expanded="isExpanded">
+      <TreeItemError v-if="hasError">
+        {{ $t('error-no-data') }}
+      </TreeItemError>
+      <TreeLoadingItem v-else-if="!isReady || pool === undefined" :icon="faCity" />
+      <TreeItemLabel
+        v-else
+        :icon="faCity"
         :route="{ name: 'pool.dashboard', params: { uuid: pool.uuid } }"
-        active
+        @toggle="toggle()"
       >
-        {{ pool.name_label || "(Pool)" }}
-      </InfraItemLabel>
-
-      <InfraHostList />
-
-      <InfraVmList />
-    </li>
-  </ul>
+        {{ pool.name_label || '(Pool)' }}
+      </TreeItemLabel>
+      <template #sublist>
+        <TreeList>
+          <InfraHostItems />
+          <InfraVmItems />
+        </TreeList>
+      </template>
+    </TreeItem>
+  </TreeList>
 </template>
 
 <script lang="ts" setup>
-import InfraHostList from "@/components/infra/InfraHostList.vue";
-import InfraItemLabel from "@/components/infra/InfraItemLabel.vue";
-import InfraLoadingItem from "@/components/infra/InfraLoadingItem.vue";
-import InfraVmList from "@/components/infra/InfraVmList.vue";
-import { usePoolCollection } from "@/stores/xen-api/pool.store";
-import { faBuilding } from "@fortawesome/free-regular-svg-icons";
+import InfraHostItems from '@/components/infra/InfraHostItems.vue'
+import InfraVmItems from '@/components/infra/InfraVmItems.vue'
+import { usePoolStore } from '@/stores/xen-api/pool.store'
+import TreeItem from '@core/components/tree/TreeItem.vue'
+import TreeItemError from '@core/components/tree/TreeItemError.vue'
+import TreeItemLabel from '@core/components/tree/TreeItemLabel.vue'
+import TreeList from '@core/components/tree/TreeList.vue'
+import TreeLoadingItem from '@core/components/tree/TreeLoadingItem.vue'
+import { faCity } from '@fortawesome/free-solid-svg-icons'
+import { useToggle } from '@vueuse/shared'
 
-const { isReady, hasError, pool } = usePoolCollection();
+const { isReady, hasError, pool } = usePoolStore().subscribe()
+
+const [isExpanded, toggle] = useToggle(true)
 </script>
-
-<style lang="postcss" scoped>
-.infra-pool-list {
-  font-size: 1.6rem;
-  font-weight: 500;
-}
-
-.infra-vm-list:deep(.link),
-.infra-vm-list:deep(.link-placeholder) {
-  padding-left: 2rem;
-}
-
-.text-error {
-  padding-left: 3rem;
-  font-weight: 700;
-  font-size: 16px;
-  line-height: 150%;
-  color: var(--color-red-vates-base);
-}
-</style>

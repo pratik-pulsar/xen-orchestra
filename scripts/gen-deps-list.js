@@ -29,6 +29,11 @@ let allPackages
 async function main(args, scriptName) {
   const toRelease = { __proto__: null }
 
+  const checkOrder = args[0] === '--check-order'
+  if (checkOrder) {
+    args.shift()
+  }
+
   const testMode = args[0] === '--test'
   if (testMode) {
     debug('reading packages from CLI')
@@ -59,6 +64,25 @@ async function main(args, scriptName) {
       return
     }
     await readPackagesFromChangelog(toRelease)
+  }
+
+  if (checkOrder) {
+    let prev
+    const names = Object.keys(toRelease)
+    for (const name of names) {
+      if (prev === undefined || name > prev) {
+        prev = name
+      } else {
+        // we know that `name` should be before `prev`, but we don't know at which place
+        //
+        // find the package that should be right after
+        const after = names.find(candidate => candidate > name)
+
+        throw new Error(
+          `invalid packages to release order in CHANGELOG.unreleased.md: ${name} should be above ${after}`
+        )
+      }
+    }
   }
 
   allPackages = keyBy(await getPackages(true), 'name')
@@ -123,6 +147,10 @@ async function readPackagesFromChangelog(toRelease) {
     }
 
     const { name, releaseType } = match.groups
+    if (name in toRelease) {
+      throw new Error('duplicate package to release in CHANGELOG.unreleased.md: ' + name)
+    }
+
     toRelease[name] = releaseType
   })
 }
@@ -135,11 +163,16 @@ async function readPackagesFromChangelog(toRelease) {
  */
 function handlePackageDependencies(packageName, packageNextVersion) {
   Object.values(allPackages).forEach(
-    ({ package: { name, version, dependencies, optionalDependencies, peerDependencies } }) => {
+    ({ package: { name, version, dependencies, devDependencies, optionalDependencies, peerDependencies } }) => {
       let releaseWeight
 
       if (
-        shouldPackageBeReleased(name, { ...dependencies, ...optionalDependencies }, packageName, packageNextVersion)
+        shouldPackageBeReleased(
+          name,
+          { ...dependencies, ...devDependencies, ...optionalDependencies },
+          packageName,
+          packageNextVersion
+        )
       ) {
         releaseWeight = RELEASE_WEIGHT.PATCH
 
@@ -182,7 +215,7 @@ function shouldPackageBeReleased(name, dependencies, depName, depVersion) {
     return false
   }
 
-  if (['xo-web', 'xo-server', '@xen-orchestra/proxy'].includes(name)) {
+  if (['xo-web', 'xo-server', '@xen-orchestra/lite', '@xen-orchestra/proxy', '@xen-orchestra/web'].includes(name)) {
     debug('forced release due to dependency update', {
       package: name,
       dependency: depName,

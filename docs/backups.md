@@ -192,9 +192,9 @@ Any Debian Linux mount point could be supported this way, until we add further o
 
 All your scheduled backups are acccessible in the "Restore" view in the backup section of Xen Orchestra.
 
-1. Select your remote and click on the eye icon to see the VMs available
+1. Search the VM Name and click on the blue button with a white arrow
 2. Choose the backup you want to restore
-3. Select the SR where you want to restore it
+3. Select the SR where you want to restore it and click "OK"
 
 :::tip
 You can restore your backup even on a brand new host/pool and on brand new hardware.
@@ -311,7 +311,7 @@ The first purely sequential strategy will lead to the fact that: **you can't pre
 If you need your backup to be done at a specific time you should consider creating a specific backup task for this VM.
 :::
 
-Strategy number 2 is to parallelise: all the snapshots will be taken at 3 AM. However **it's risky without limits**: it means potentially doing 50 snapshots or more at once on the same storage. **Since XenServer doesn't have a queue**, it will try to do all of them at once. This is also prone to race conditions and could cause crashes on your storage.
+Strategy number 2 is to parallelise: all the snapshots will be taken at 3 AM. However **it's risky without limits**: it means potentially doing 50 snapshots or more at once on the same storage. **Since XCP-ng/XenServer doesn't have a queue**, it will try to do all of them at once. This is also prone to race conditions and could cause crashes on your storage.
 
 By default the _parallel strategy_ is, on paper, the most logical one. But you need to be careful and give it some limits on concurrency.
 
@@ -325,8 +325,8 @@ The best way to define the best concurrency for you is by increasing it slowly a
 So to summarize, if you set your concurrency at 6 and you have 20 Vms to backup the process will be the following:
 
 - We start the backup of the first 6 VMs.
-- When one VM backup as ended we will launch the next VM backup.
-- We're keep launching new VM backup until the 20 VMs are finished, keeping 6 backups running.
+- When one VM backup has ended we will launch the next VM backup.
+- We keep launching new VM backups until the 20 VMs are finished, keeping 6 backups running.
 
 Removing the snapshot will trigger the coalesce process for the first VM, this is an automated action not triggered directly by the backup job.
 
@@ -334,7 +334,7 @@ Removing the snapshot will trigger the coalesce process for the first VM, this i
 
 When a backup job is configured using Normal snapshot mode, it's possible to use VM tags to apply a different snapshot mode to individual VMs.
 
-- **xo-offline-backup** to apply offline snapshotting mode (VM with be shut down prior to snapshot)
+- **xo-offline-backup** to apply offline snapshotting mode (VM will be shut down prior to snapshot)
 - **xo-memory-backup** to apply RAM-enabled snapshotting
 - **xo-backup-healthcheck-xenstore** to use a script during [backup healthcheck](#backup-health-check)
 
@@ -377,7 +377,7 @@ Backup health check ensures the backups are ready to be restored.
 
 #### Check for boot
 
-XO will restore the VM, either by downloading it for a delta/full backup or by cloning it for a disaster recovery of continous replication and then wait for the guest tools to be loaded before the end of a timeout of 10 minutes (boot + guest tools).
+XO will restore the VM, either by downloading it for a delta/full backup or by cloning it for a disaster recovery or continuous replication and then wait for the guest tools to be loaded before the end of a timeout of 10 minutes (boot + guest tools).
 
 A VM without guest tools will fail its health check.
 

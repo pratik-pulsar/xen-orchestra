@@ -12,6 +12,10 @@ const SCHEMA_SETTINGS = {
     '*': {
       type: 'object',
       properties: {
+        cbtDestroySnapshotData: {
+          type: 'boolean',
+          optional: true,
+        },
         concurrency: {
           type: 'number',
           minimum: 0,
@@ -20,6 +24,20 @@ const SCHEMA_SETTINGS = {
         maxExportRate: {
           type: 'number',
           minimum: 0,
+          optional: true,
+        },
+        nbdConcurrency: {
+          type: 'number',
+          minimum: 1,
+          optional: true,
+        },
+        nRetriesVmBackupFailures: {
+          minimum: 0,
+          optional: true,
+          type: 'number',
+        },
+        preferNbd: {
+          type: 'boolean',
           optional: true,
         },
       },
@@ -279,8 +297,8 @@ importVmBackup.params = {
   },
   useDifferentialRestore: {
     type: 'boolean',
-    optional: true
-  }
+    optional: true,
+  },
 }
 
 export function checkBackup({ id, settings, sr }) {

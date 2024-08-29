@@ -1,5 +1,5 @@
 <template>
-  <div :class="[backgroundClass, { nested: isNested }]" class="modal-container">
+  <div :class="[backgroundClass, { nested: isNested }]" class="modal-container typo p1-regular">
     <header v-if="$slots.header" class="modal-header">
       <slot name="header" />
     </header>
@@ -13,26 +13,26 @@
 </template>
 
 <script lang="ts" setup>
-import { useContext } from "@/composables/context.composable";
-import { ColorContext } from "@/context";
-import type { Color } from "@/types";
-import { IK_MODAL_NESTED } from "@/types/injection-keys";
-import { inject, provide } from "vue";
+import { useContext } from '@/composables/context.composable'
+import { ColorContext } from '@/context'
+import type { Color } from '@/types'
+import { IK_MODAL_NESTED } from '@/types/injection-keys'
+import { inject, provide } from 'vue'
 
 const props = defineProps<{
-  color?: Color;
-}>();
+  color?: Color
+}>()
 
 defineSlots<{
-  header: () => any;
-  default: () => any;
-  footer: () => any;
-}>();
+  header: () => any
+  default: () => any
+  footer: () => any
+}>()
 
-const { backgroundClass } = useContext(ColorContext, () => props.color);
+const { backgroundClass } = useContext(ColorContext, () => props.color)
 
-const isNested = inject(IK_MODAL_NESTED, false);
-provide(IK_MODAL_NESTED, true);
+const isNested = inject(IK_MODAL_NESTED, false)
+provide(IK_MODAL_NESTED, true)
 </script>
 
 <style lang="postcss" scoped>
@@ -44,7 +44,6 @@ provide(IK_MODAL_NESTED, true);
   padding: 2rem;
   gap: 1rem;
   border-radius: 1rem;
-  font-size: 1.6rem;
 
   &:not(.nested) {
     min-width: 40rem;

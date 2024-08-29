@@ -32,26 +32,51 @@ export default class Tasks extends EventEmitter {
   // contains instance of running tasks (required for interaction, e.g. aborting)
   #tasks = new Map()
 
+  #onProgressBuffer = new Map()
+  #handleOnProgressScheduled = false
+  #handleOnProgressBuffer = async () => {
+    const buf = this.#onProgressBuffer
+    const store = this.#store
+
+    do {
+      for (const [id, taskLog] of buf) {
+        buf.delete(id)
+        if (taskLog === null) {
+          try {
+            await this.deleteLog(id)
+          } catch (error) {
+            warn('failure on deleting task log from store', { error, taskLog })
+          }
+        } else {
+          this.emit(id, taskLog)
+          this.emit('update', taskLog)
+
+          try {
+            await store.put(id, taskLog)
+          } catch (error) {
+            warn('failure on saving task log in store', { error, taskLog })
+          }
+        }
+      }
+    } while (buf.size !== 0) // new events may have been added during iteration
+
+    this.#handleOnProgressScheduled = false
+  }
+
   #onProgress = makeOnProgress({
     onRootTaskEnd: taskLog => {
       const { id } = taskLog
       this.#tasks.delete(id)
     },
-    onTaskUpdate: async taskLog => {
-      const { id, status } = taskLog
-      if (status !== 'pending') {
-        if (this.#logsToClearOnSuccess.has(id)) {
-          this.#logsToClearOnSuccess.delete(id)
+    onTaskUpdate: taskLog => {
+      const buf = this.#onProgressBuffer
 
-          if (status === 'success') {
-            try {
-              await this.#store.del(id)
-            } catch (error) {
-              warn('failure on deleting task log from store', { error, taskLog })
-            }
-            return
-          }
-        }
+      if (!this.#handleOnProgressScheduled) {
+        this.#handleOnProgressScheduled = true
+
+        // task events are buffered, deduplicated and will be handled one after
+        // the others on the next tick to avoid race conditions
+        process.nextTick(this.#handleOnProgressBuffer)
       }
 
       // Error objects are not JSON-ifiable by default
@@ -60,17 +85,20 @@ export default class Tasks extends EventEmitter {
         taskLog.result = serializeError(result)
       }
 
-      try {
-        const { $root } = taskLog
+      const { $root } = taskLog
+      const { status, id } = $root
+      if (status !== 'pending') {
+        if (this.#logsToClearOnSuccess.has(id)) {
+          this.#logsToClearOnSuccess.delete(id)
 
-        $root.updatedAt = Date.now()
-
-        const { id } = $root
-        await this.#store.put(id, $root)
-        this.emit(id, $root)
-      } catch (error) {
-        warn('failure on saving task log in store', { error, taskLog })
+          if (status === 'success') {
+            return buf.set(id, null)
+          }
+        }
       }
+
+      $root.updatedAt = Date.now()
+      buf.set(id, $root)
     },
   })
 
@@ -114,6 +142,7 @@ export default class Tasks extends EventEmitter {
       const deleteEntry = key => {
         ++count
         db.del(key, cb)
+        this.emit('remove', key)
       }
 
       const onData =
@@ -140,7 +169,7 @@ export default class Tasks extends EventEmitter {
   }
 
   async clearLogs() {
-    await this.#store.clear()
+    await this.#gc(0)
   }
 
   /**
@@ -182,6 +211,7 @@ export default class Tasks extends EventEmitter {
 
   async deleteLog(id) {
     await this.#store.del(id)
+    this.emit('remove', id)
   }
 
   async get(id) {

@@ -1,7 +1,7 @@
 {
   "private": false,
   "name": "xen-api",
-  "version": "2.0.0",
+  "version": "4.2.0",
   "license": "ISC",
   "description": "Connector to the Xen API",
   "keywords": [
@@ -28,31 +28,47 @@
     "xen-api": "./cli.mjs"
   },
   "engines": {
-    "node": ">=14"
+    "node": ">=18"
   },
   "dependencies": {
     "@vates/coalesce-calls": "^0.1.0",
-    "@vates/decorate-with": "^2.0.0",
+    "@vates/compose": "^2.1.0",
+    "@vates/decorate-with": "^2.1.0",
+    "@vates/json-hash": "^0.2.0",
+    "@vates/obfuscate": "^0.1.0",
+    "@vates/xml": "^2.0.0",
+    "@vates/xml-rpc": "^1.0.0",
+    "@xen-orchestra/log": "^0.6.0",
     "bind-property-descriptor": "^2.0.0",
     "blocked": "^1.2.1",
-    "debug": "^4.0.1",
     "http-request-plus": "^1.0.2",
     "jest-diff": "^29.0.3",
     "json-rpc-protocol": "^0.13.1",
     "kindof": "^2.0.0",
-    "limit-concurrency-decorator": "^0.5.0",
+    "limit-concurrency-decorator": "^0.6.0",
     "lodash": "^4.17.4",
     "make-error": "^1.3.0",
     "minimist": "^1.2.0",
     "ms": "^2.1.1",
+    "proxy-agent": "^6.3.1",
     "promise-toolbox": "^0.21.0",
-    "proxy-agent": "^5.0.0",
     "pw": "0.0.4",
-    "xmlrpc": "^1.3.2",
+    "undici": "^6.2.1",
     "xo-collection": "^0.5.0"
   },
   "devDependencies": {
-    "tap": "^16.1.0"
+    "getopts": "^2.3.0",
+    "golike-defer": "^0.5.1",
+    "human-format": "^1.2.0",
+    "lodash": "^4.17.21",
+    "process-top": "^1.2.0",
+    "progress-stream": "^2.0.0",
+    "promise-toolbox": "^0.21.0",
+    "readable-stream": "^4.5.2",
+    "source-map-support": "^0.5.21",
+    "tap": "^18.7.0",
+    "throttle": "^1.0.3",
+    "vhd-lib": "^4.11.0"
   },
   "scripts": {
     "plot": "gnuplot -p memory-test.gnu",

@@ -22,6 +22,7 @@ disableMergeWorker = false
 snapshotNameLabelTpl = '[XO Backup {job.name}] {vm.name_label}'
 vhdDirectoryCompression = 'brotli'
 
+
 # This is a work-around.
 #
 # See https://github.com/vatesfr/xen-orchestra/pull/4674
@@ -61,7 +62,7 @@ disableFileRemotes = true
 
 [xapiOptions]
 maxUncoalescedVdis = 1
-watchEvents = ['network', 'PIF', 'pool', 'SR', 'task', 'VBD', 'VDI', 'VIF', 'VM']
+watchEvents = ['network', 'PIF', 'pool', 'SR', 'task', 'VBD', 'VDI', 'VIF', 'VM', 'VM_guest_metrics']
 
 
 

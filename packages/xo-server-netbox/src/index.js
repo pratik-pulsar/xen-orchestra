@@ -16,6 +16,7 @@ import slugify from './slugify'
 
 const log = createLogger('xo:netbox')
 
+const SUPPORTED_VERSION = '>=2.10 <5.0'
 const CLUSTER_TYPE = 'XCP-ng Pool'
 const TYPES_WITH_UUID = ['virtualization.cluster', 'virtualization.virtualmachine', 'virtualization.vminterface']
 const CHUNK_SIZE = 100
@@ -38,7 +39,6 @@ class Netbox {
   #allowUnauthorized
   #endpoint
   #intervalToken
-  #loaded
   #netboxVersion
   #xoPools
   #removeApiMethods
@@ -59,7 +59,7 @@ class Netbox {
     this.getObjects = xo.getObjects.bind(xo)
   }
 
-  configure(configuration) {
+  configure(configuration, state) {
     this.#endpoint = trimEnd(configuration.endpoint, '/')
     if (!/^https?:\/\//.test(this.#endpoint)) {
       this.#endpoint = 'http://' + this.#endpoint
@@ -71,13 +71,15 @@ class Netbox {
     this.#syncInterval = configuration.syncInterval && configuration.syncInterval * 60 * 60 * 1e3
 
     // We don't want to start the auto-sync if the plugin isn't loaded
-    if (this.#loaded) {
+    if (state.loaded) {
       clearInterval(this.#intervalToken)
       if (this.#syncInterval !== undefined) {
         this.#intervalToken = setInterval(this.#synchronize.bind(this), this.#syncInterval)
       }
     }
   }
+
+  #onUnload = []
 
   load() {
     const synchronize = ({ pools }) => this.#synchronize(pools)
@@ -86,26 +88,27 @@ class Netbox {
       pools: { type: 'array', optional: true, items: { type: 'string' } },
     }
 
-    this.#removeApiMethods = this.#xo.addApiMethods({
-      netbox: { synchronize },
-    })
+    this.#onUnload.push(
+      this.#xo.addApiMethods({
+        netbox: { synchronize },
+      })
+    )
 
     if (this.#syncInterval !== undefined) {
       this.#intervalToken = setInterval(this.#synchronize.bind(this), this.#syncInterval)
+      this.#onUnload.push(() => {
+        clearInterval(this.#intervalToken)
+      })
     }
-
-    this.#loaded = true
   }
 
   unload() {
-    this.#removeApiMethods()
-    clearInterval(this.#intervalToken)
-
-    this.#loaded = false
+    this.#onUnload.forEach(onUnload => onUnload())
+    this.#onUnload.length = 0
   }
 
   async test() {
-    await this.#fetchNetboxVersion()
+    await this.#checkNetboxVersion()
     await this.#checkCustomFields()
 
     const randomSuffix = Math.random().toString(36).slice(2, 11)
@@ -207,7 +210,7 @@ class Netbox {
     if (uuidCustomField === undefined) {
       throw new Error('UUID custom field was not found. Please create it manually from your Netbox interface.')
     }
-    const { content_types: types } = uuidCustomField
+    const types = uuidCustomField.object_types ?? uuidCustomField.content_types
     const typesWithUuid = TYPES_WITH_UUID
     if (this.#syncUsers) {
       typesWithUuid.push('tenancy.tenant')
@@ -231,10 +234,19 @@ class Netbox {
     }
   }
 
+  async #checkNetboxVersion() {
+    await this.#fetchNetboxVersion()
+    if (this.#netboxVersion === undefined || !semver.satisfies(this.#netboxVersion, SUPPORTED_VERSION)) {
+      throw new Error(
+        `Netbox version ${this.#netboxVersion ?? '<2.10'} not supported. Please check https://xen-orchestra.com/docs/advanced.html#netbox`
+      )
+    }
+  }
+
   // ---------------------------------------------------------------------------
 
   async #synchronize(xoPools = this.#xoPools) {
-    await this.#fetchNetboxVersion()
+    await this.#checkNetboxVersion()
     await this.#checkCustomFields()
 
     log.info(`Synchronizing ${xoPools.length} pools with Netbox`, { pools: xoPools })

@@ -1,9 +1,11 @@
+import { readChunkStrict, skipStrict } from '@vates/read-chunk'
 import _computeGeometryForSize from 'vhd-lib/_computeGeometryForSize.js'
 import { createFooter, createHeader } from 'vhd-lib/_createFooterHeader.js'
 import { DISK_TYPES, FOOTER_SIZE } from 'vhd-lib/_constants.js'
 import { notEqual, strictEqual } from 'node:assert'
 import { unpackFooter, unpackHeader } from 'vhd-lib/Vhd/_utils.js'
 import { VhdAbstract } from 'vhd-lib'
+import { openDatastore } from './_openDatastore.mjs'
 
 // one big difference with the other versions of VMDK is that the grain tables are actually sparse, they are pre-allocated but not used in grain order,
 // so we have to read the grain directory to know where to find the grain tables
@@ -52,7 +54,6 @@ function readSeSparseTable(buffer, index) {
 }
 
 export default class VhdEsxiSeSparse extends VhdAbstract {
-  #esxi
   #datastore
   #parentVhd
   #path
@@ -68,18 +69,25 @@ export default class VhdEsxiSeSparse extends VhdAbstract {
   #grainTableOffsetBytes
   #grainOffsetBytes
 
-  static async open(esxi, datastore, path, parentVhd, opts) {
-    const vhd = new VhdEsxiSeSparse(esxi, datastore, path, parentVhd, opts)
+  #reading = false
+  #stream
+  #streamOffset = 0
+
+  static async open(datastoreName, path, parentVhd, opts) {
+    const datastore = openDatastore(datastoreName, opts)
+    const vhd = new VhdEsxiSeSparse(datastore, path, parentVhd, opts)
     await vhd.readHeaderAndFooter()
-    return vhd
+    return {
+      value: vhd,
+      dispose: () => vhd.dispose(),
+    }
   }
 
   get path() {
     return this.#path
   }
-  constructor(esxi, datastore, path, parentVhd, { lookMissingBlockInParent = true } = {}) {
+  constructor(datastore, path, parentVhd, { lookMissingBlockInParent = true } = {}) {
     super()
-    this.#esxi = esxi
     this.#path = path
     this.#datastore = datastore
     this.#parentVhd = parentVhd
@@ -102,12 +110,57 @@ export default class VhdEsxiSeSparse extends VhdAbstract {
     )
   }
 
+  // since most of the data are writtent sequentially we always open a stream from start to the end of the file
+  // If we have to rewind it, we destroy the stream and recreate with the right "start"
+  // We also recreate the stream if there is too much distance between current position and the wanted position
+
   async #read(start, length) {
-    const buffer = await (
-      await this.#esxi.download(this.#datastore, this.#path, `${start}-${start + length - 1}`)
-    ).buffer()
-    strictEqual(buffer.length, length)
-    return buffer
+    if (!this.#footer) {
+      // we need to be able before the footer is loaded, to read the header and footer
+      return this.#datastore.getBuffer(this.#path, start, start + length)
+    }
+    if (this.#reading) {
+      throw new Error('reading must be done sequentially')
+    }
+    try {
+      const MAX_SKIPPABLE_LENGTH = 2 * 1024 * 1024
+      this.#reading = true
+      if (this.#stream !== undefined) {
+        // stream is already ahead or to far behind
+        if (this.#streamOffset > start || this.#streamOffset + MAX_SKIPPABLE_LENGTH < start) {
+          this.#stream.destroy()
+          this.#stream = undefined
+          this.#streamOffset = 0
+        }
+      }
+      // no stream
+      if (this.#stream === undefined) {
+        const end = this.footer.currentSize
+        this.#stream = await this.#datastore.getStream(this.#path, start, end)
+        this.#streamOffset = start
+      }
+
+      // stream a little behind
+      if (this.#streamOffset < start) {
+        await skipStrict(this.#stream, start - this.#streamOffset)
+        this.#streamOffset = start
+      }
+
+      // really read data
+      this.#streamOffset += length
+      const data = await readChunkStrict(this.#stream, length)
+      return data
+    } catch (error) {
+      error.start = start
+      error.length = length
+      error.streamLength = this.footer.currentSize
+      this.#stream?.destroy()
+      this.#stream = undefined
+      this.#streamOffset = 0
+      throw error
+    } finally {
+      this.#reading = false
+    }
   }
 
   async readHeaderAndFooter() {
@@ -199,15 +252,28 @@ export default class VhdEsxiSeSparse extends VhdAbstract {
 
   async readBlock(blockId) {
     let changed = false
-    const parentBlock = await this.#parentVhd.readBlock(blockId)
-    const parentBuffer = parentBlock.buffer
     const grainOffsets = this.#grainIndex.get(blockId) // may be undefined if the child contains block and lookMissingBlockInParent=true
+    // negative value indicate that it's not an offset
+    // SE_SPARSE_GRAIN_NON_ALLOCATED means we have to look into the parent data
+    const isLocallyFull =
+      grainOffsets !== undefined && !grainOffsets.some(value => value === -SE_SPARSE_GRAIN_NON_ALLOCATED)
+
+    let parentBuffer, parentBlock
+    // don't read from parent is current block is already completly described
+    if (isLocallyFull) {
+      parentBuffer = Buffer.alloc(512 /* bitmap */ + 2 * 1024 * 1024 /* data */, 0)
+      parentBuffer.fill(255, 0, 512) // bitmap is full  of bit 1
+    } else {
+      parentBlock = await this.#parentVhd.readBlock(blockId)
+      parentBuffer = parentBlock.buffer
+    }
     const EMPTY_GRAIN = Buffer.alloc(GRAIN_SIZE_BYTES, 0)
     for (const index in grainOffsets) {
       const value = grainOffsets[index]
       let data
       if (value > 0) {
         // it's the offset in byte of a grain type SE_SPARSE_GRAIN_ALLOCATED
+        // @todo this part can be quite slow when grain are not sorted
         data = await this.#read(value, GRAIN_SIZE_BYTES)
       } else {
         // back to the real grain type
@@ -230,7 +296,7 @@ export default class VhdEsxiSeSparse extends VhdAbstract {
       }
     }
     // no need to copy if data all come from parent
-    return changed
+    return changed || !parentBlock
       ? {
           id: blockId,
           bitmap: parentBuffer.slice(0, 512),
@@ -238,5 +304,9 @@ export default class VhdEsxiSeSparse extends VhdAbstract {
           buffer: parentBuffer,
         }
       : parentBlock
+  }
+
+  async dispose() {
+    await this.#stream?.destroy()
   }
 }

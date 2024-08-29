@@ -1596,9 +1596,6 @@ export default {
   // Original text: "Invalid parameters"
   configIpErrorTitle: 'Paramètres invalides',
 
-  // Original text: "IP address and netmask required"
-  configIpErrorMessage: 'Adresse IP et masque de réseau requis',
-
   // Original text: "Static IP address"
   staticIp: 'Adresse IP statique',
 
@@ -3376,8 +3373,8 @@ export default {
   // Original text: "No updater available for Community Edition"
   noUpdaterCommunity: 'Pas de mise à jour sur la version Communautaire',
 
-  // Original text: "Please consider subscribe and try it with all features for free during 15 days on {link}."
-  considerSubscribe: 'Envisagez de souscrire, et essayez toutes les fonctionnalités gratuitement pendant 15 jours.',
+  // Original text: "Please consider subscribe and try it with all features for free during 30 days on {link}."
+  considerSubscribe: 'Envisagez de souscrire, et essayez toutes les fonctionnalités gratuitement pendant 30 jours.',
 
   // Original text: "Manual update could break your current installation due to dependencies issues, do it with caution"
   noUpdaterWarning:

@@ -12,7 +12,7 @@ import { injectIntl } from 'react-intl'
 import { Input } from 'debounce-input-decorator'
 import { InputCol, LabelCol, Row } from 'form-grid'
 import { Password, Select, Toggle } from 'form'
-import { SelectNetwork, SelectPool, SelectSr } from 'select-objects'
+import { SelectNetwork, SelectRemote, SelectPool, SelectSr, SelectVmTemplate } from 'select-objects'
 
 import VmData from './vm-data'
 import { getRedirectionUrl } from '../utils'
@@ -30,11 +30,12 @@ class EsxiImport extends Component {
     hostIp: '',
     isConnected: false,
     password: '',
-    thin: false,
     skipSslVerify: false,
     stopSource: false,
     stopOnError: true,
+    template: undefined,
     user: '',
+    workDirRemote: undefined,
   }
 
   _getDefaultNetwork = createSelector(
@@ -55,18 +56,30 @@ class EsxiImport extends Component {
   )
 
   _getNetworkPredicate = createSelector(
-    () => this.props.pool?.id,
+    () => this.state.pool?.id,
     poolId => (poolId === undefined ? undefined : network => network.$poolId === poolId)
   )
 
   _getSrPredicate = createSelector(
-    () => this.props.pool?.id,
+    () => this.state.pool?.id,
     poolId => (poolId === undefined ? undefined : sr => isSrWritable(sr) && sr.$poolId === poolId)
   )
 
   _importVms = () => {
-    const { concurrency, hostIp, network, password, skipSslVerify, sr, stopSource, stopOnError, thin, user, vms } =
-      this.state
+    const {
+      concurrency,
+      hostIp,
+      network,
+      password,
+      skipSslVerify,
+      sr,
+      stopSource,
+      stopOnError,
+      user,
+      template,
+      vms,
+      workDirRemote,
+    } = this.state
     return importVmsFromEsxi({
       concurrency: +concurrency,
       host: hostIp,
@@ -76,9 +89,10 @@ class EsxiImport extends Component {
       sslVerify: !skipSslVerify,
       stopOnError,
       stopSource,
-      thin,
+      template: template.id,
       user,
       vms: vms.map(vm => vm.value),
+      workDirRemote: workDirRemote?.id,
     })
   }
 
@@ -114,7 +128,6 @@ class EsxiImport extends Component {
       sr: undefined,
       stopSource: false,
       stopOnError: true,
-      thin: false,
       vms: undefined,
     })
   }
@@ -132,10 +145,10 @@ class EsxiImport extends Component {
       sr,
       stopSource,
       stopOnError,
-      thin,
       user,
       vms,
       vmsById,
+      workDirRemote,
     } = this.state
 
     if (!isConnected) {
@@ -191,7 +204,13 @@ class EsxiImport extends Component {
         </form>
       )
     }
-
+    // check if at least one VM has at least one disk chain
+    // with at least one extent stored on vsan
+    const useExportVmMigration =
+      !isEmpty(vms) &&
+      vms.some(({ value }) => {
+        return vmsById[value].hasAllExtentsListed === false
+      })
     return (
       <form>
         <Row>
@@ -249,13 +268,6 @@ class EsxiImport extends Component {
           </InputCol>
         </Row>
         <Row>
-          <LabelCol>{_('esxiImportThin')}</LabelCol>
-          <InputCol>
-            <Toggle onChange={this.toggleState('thin')} value={thin} />
-            <small className='form-text text-muted'>{_('esxiImportThinDescription')}</small>
-          </InputCol>
-        </Row>
-        <Row>
           <LabelCol>{_('esxiImportStopSource')}</LabelCol>
           <InputCol>
             <Toggle onChange={this.toggleState('stopSource')} value={stopSource} />
@@ -267,6 +279,27 @@ class EsxiImport extends Component {
           <InputCol>
             <Toggle onChange={this.toggleState('stopOnError')} value={stopOnError} />
             <small className='form-text text-muted'>{_('esxiImportStopOnErrorDescription')}</small>
+          </InputCol>
+        </Row>
+        {useExportVmMigration && (
+          <Row>
+            <LabelCol>{_('workDirLabel')}</LabelCol>
+            <InputCol>
+              <SelectRemote required value={workDirRemote?.id} onChange={this.linkState('workDirRemote')} />
+            </InputCol>
+          </Row>
+        )}
+        <Row>
+          <LabelCol>{_('originalTemplate')}</LabelCol>
+          <InputCol>
+            <SelectVmTemplate
+              autoSelectSingleOption={false}
+              disabled={isEmpty(pool)}
+              hasSelectAll
+              multi={false}
+              onChange={this.linkState('template')}
+              required
+            />
           </InputCol>
         </Row>
 
@@ -283,6 +316,7 @@ class EsxiImport extends Component {
             ))}
           </div>
         )}
+        {useExportVmMigration && 'warningVsanImport'}
         <div className='form-group pull-right'>
           <ActionButton
             btnStyle='primary'

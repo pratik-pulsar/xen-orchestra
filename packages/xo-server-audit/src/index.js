@@ -1,3 +1,4 @@
+import * as CM from 'complex-matcher'
 import asyncIteratorToStream from 'async-iterator-to-stream'
 import { alteredAuditRecord, missingAuditRecord } from 'xo-common/api-errors'
 import { createGzip } from 'zlib'
@@ -47,6 +48,7 @@ const DEFAULT_BLOCKED_LIST = {
   'pif.getIpv4ConfigurationModes': true,
   'pif.getIpv6ConfigurationModes': true,
   'plugin.get': true,
+  'pool.getGuestSecureBootReadiness': true,
   'pool.getLicenseState': true,
   'pool.getPatchesDifference': true,
   'pool.listMissingPatches': true,
@@ -72,12 +74,14 @@ const DEFAULT_BLOCKED_LIST = {
   'system.getServerTimezone': true,
   'system.getServerVersion': true,
   'system.getVersion': true,
+  'tag.getAllConfigured': true,
   'test.getPermissionsForUser': true,
   'user.getAll': true,
   'user.getAuthenticationTokens': true,
   'vif.getLockingModeValues': true,
   'vm.getCloudInitConfig': true,
   'vm.getHaValues': true,
+  'vm.getSecurebootReadiness': true,
   'vm.stats': true,
   'xo.getAllObjects': true,
   'xoa.check': true,
@@ -277,6 +281,41 @@ class AuditXoPlugin {
           getRecords,
         },
       })
+    )
+
+    cleaners.push(
+      this._xo.registerRestApi(
+        {
+          records: {
+            ':id': {
+              _get: async (req, _, next) => {
+                const record = await this._auditCore.get(req.params.id)
+                if (record !== undefined) {
+                  return record
+                }
+                next()
+              },
+            },
+
+            _get: async function* ({ query }) {
+              const limit = query.limit === undefined ? Infinity : +query.limit
+              const filter = query.filter === undefined ? () => true : CM.parse(query.filter).createPredicate()
+
+              let i = 0
+              for await (const record of this._auditCore.getFrom(query.from)) {
+                if (++i > limit) {
+                  break
+                }
+
+                if (filter(record)) {
+                  yield record
+                }
+              }
+            }.bind(this),
+          },
+        },
+        '/plugins/audit'
+      )
     )
   }
 

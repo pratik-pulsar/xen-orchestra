@@ -1,17 +1,17 @@
 <template>
   <UiCard class="pool-dashboard-alarms">
     <UiCardTitle>
-      {{ $t("alarms") }}
+      {{ $t('alarms') }}
       <template v-if="isReady && alarms.length > 0" #right>
         <UiCounter :value="alarms.length" color="error" />
       </template>
     </UiCardTitle>
     <div v-if="!isStarted" class="pre-start">
       <div>
-        <p class="text">
-          {{ $t("click-to-display-alarms") }}
+        <p class="text typo h4-medium">
+          {{ $t('click-to-display-alarms') }}
         </p>
-        <UiButton @click="start">{{ $t("load-now") }}</UiButton>
+        <UiButton @click="start">{{ $t('load-now') }}</UiButton>
       </div>
       <div>
         <img alt="" src="@/assets/server-status.svg" />
@@ -25,14 +25,12 @@
       <div>
         <img alt="" src="@/assets/server-status.svg" />
       </div>
-      <p class="text">
-        {{ $t("all-good") }}<br />{{ $t("no-alarm-triggered") }}
-      </p>
+      <p class="text typo h4-medium">{{ $t('all-good') }}<br />{{ $t('no-alarm-triggered') }}</p>
     </div>
     <div v-else class="table-container">
       <UiTable>
         <tbody>
-          <AlarmRow v-for="alarm in alarms" :key="alarm.uuid" :alarm="alarm" />
+          <AlarmRow v-for="alarm in alarms" :key="alarm.uuid" :alarm />
         </tbody>
       </UiTable>
     </div>
@@ -40,23 +38,17 @@
 </template>
 
 <script lang="ts" setup>
-import NoDataError from "@/components/NoDataError.vue";
-import AlarmRow from "@/components/pool/dashboard/alarm/AlarmRow.vue";
-import UiButton from "@/components/ui/UiButton.vue";
-import UiCard from "@/components/ui/UiCard.vue";
-import UiCardSpinner from "@/components/ui/UiCardSpinner.vue";
-import UiCardTitle from "@/components/ui/UiCardTitle.vue";
-import UiCounter from "@/components/ui/UiCounter.vue";
-import UiTable from "@/components/ui/UiTable.vue";
-import { useAlarmCollection } from "@/stores/xen-api/alarm.store";
+import NoDataError from '@/components/NoDataError.vue'
+import AlarmRow from '@/components/pool/dashboard/alarm/AlarmRow.vue'
+import UiCard from '@/components/ui/UiCard.vue'
+import UiCardSpinner from '@/components/ui/UiCardSpinner.vue'
+import UiCardTitle from '@/components/ui/UiCardTitle.vue'
+import UiTable from '@/components/ui/UiTable.vue'
+import { useAlarmStore } from '@/stores/xen-api/alarm.store'
+import UiButton from '@core/components/button/UiButton.vue'
+import UiCounter from '@core/components/UiCounter.vue'
 
-const {
-  records: alarms,
-  start,
-  isStarted,
-  isReady,
-  hasError,
-} = useAlarmCollection({ defer: true });
+const { records: alarms, start, isStarted, isReady, hasError } = useAlarmStore().subscribe({ defer: true })
 </script>
 
 <style lang="postcss" scoped>
@@ -71,16 +63,17 @@ const {
   align-items: center;
   gap: 3rem;
 }
+
 .text {
-  font-size: 2rem;
-  font-weight: 500;
   .pre-start & {
     margin-bottom: 2rem;
   }
+
   .no-alarm & {
-    color: var(--color-green-infra-base);
+    color: var(--color-green-base);
   }
 }
+
 .table-container {
   max-height: 25rem;
   overflow: auto;

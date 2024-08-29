@@ -31,7 +31,10 @@ const AUTHORIZATIONS = {
     XVA: STARTER, // @todo handleExport in xen-orchestra/packages/xo-server/src/api/vm.mjs
   },
   LIST_MISSING_PATCHES: STARTER,
+  POOL_EMERGENCY_SHUTDOWN: ENTERPRISE,
   ROLLING_POOL_UPDATE: ENTERPRISE,
+  ROLLING_POOL_REBOOT: ENTERPRISE,
+  WARM_MIGRATION: PREMIUM,
 }
 
 export default class Authorization {
@@ -67,6 +70,15 @@ export default class Authorization {
         currentPlan,
         minPlan,
       })
+    }
+  }
+
+  async hasFeatureAuthorization(featureCode) {
+    try {
+      await this.checkFeatureAuthorization(featureCode)
+      return true
+    } catch (_) {
+      return false
     }
   }
 }

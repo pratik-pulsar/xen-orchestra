@@ -3,7 +3,6 @@ import _ from 'intl'
 import ActionButton from 'action-button'
 import addSubscriptions from 'add-subscriptions'
 import Button from 'button'
-import constructQueryString from 'construct-query-string'
 import Copiable from 'copiable'
 import CopyToClipboard from 'react-copy-to-clipboard'
 import decorate from 'apply-decorators'
@@ -21,6 +20,7 @@ import { get } from '@xen-orchestra/defined'
 import { groupBy, isEmpty, map, some } from 'lodash'
 import { injectState, provideState } from 'reaclette'
 import { Proxy } from 'render-xo-item'
+import { smartModeToComplexMatcher } from 'smartModeToComplexMatcher'
 import { withRouter } from 'react-router'
 import {
   cancelJob,
@@ -39,6 +39,7 @@ import {
 
 import getSettingsWithNonDefaultValue from '../_getSettingsWithNonDefaultValue'
 import { destructPattern } from '../utils'
+import { REPORT_WHEN_LABELS } from '../new/_reportWhen'
 import { LogStatus } from '../../logs/backup-ng'
 
 const Ul = props => <ul {...props} style={{ listStyleType: 'none' }} />
@@ -319,6 +320,7 @@ class JobsTable extends React.Component {
             compression,
             concurrency,
             fullInterval,
+            nRetriesVmBackupFailures,
             offlineBackup,
             offlineSnapshot,
             proxyId,
@@ -333,7 +335,9 @@ class JobsTable extends React.Component {
           return (
             <Ul>
               {proxyId !== undefined && <Li>{_.keyValue(_('proxy'), <Proxy id={proxyId} key={proxyId} />)}</Li>}
-              {reportWhen !== undefined && <Li>{_.keyValue(_('reportWhen'), reportWhen)}</Li>}
+              {reportWhen in REPORT_WHEN_LABELS && (
+                <Li>{_.keyValue(_('reportWhen'), _(REPORT_WHEN_LABELS[reportWhen]))}</Li>
+              )}
               {concurrency !== undefined && <Li>{_.keyValue(_('concurrency'), concurrency)}</Li>}
               {timeout !== undefined && <Li>{_.keyValue(_('timeout'), timeout / 3600e3)} hours</Li>}
               {fullInterval !== undefined && <Li>{_.keyValue(_('fullBackupInterval'), fullInterval)}</Li>}
@@ -349,6 +353,9 @@ class JobsTable extends React.Component {
               {compression !== undefined && (
                 <Li>{_.keyValue(_('compression'), compression === 'native' ? 'GZIP' : compression)}</Li>
               )}
+              {nRetriesVmBackupFailures > 0 && (
+                <Li>{_.keyValue(_('nRetriesVmBackupFailures'), nRetriesVmBackupFailures)}</Li>
+              )}
             </Ul>
           )
         },
@@ -360,7 +367,7 @@ class JobsTable extends React.Component {
         handler: (job, { goTo }) =>
           goTo({
             pathname: '/home',
-            query: { t: 'VM', s: constructQueryString(job.vms) },
+            query: { t: 'VM', s: smartModeToComplexMatcher(job.vms).toString() },
           }),
         disabled: job => job.type !== 'backup',
         label: _('redirectToMatchingVms'),

@@ -1,33 +1,32 @@
-import { useXenApiStoreSubscribableContext } from "@/composables/xen-api-store-subscribable-context.composable";
-import type { XenApiHost } from "@/libs/xen-api/xen-api.types";
-import { createUseCollection } from "@/stores/xen-api/create-use-collection";
-import { defineStore } from "pinia";
+import type { XenApiHost } from '@/libs/xen-api/xen-api.types'
+import { createXapiStoreConfig } from '@/stores/xen-api/create-xapi-store-config'
+import { createSubscribableStoreContext } from '@core/utils/create-subscribable-store-context.util'
+import { defineStore } from 'pinia'
 
-export const useHostMetricsStore = defineStore("xen-api-host-metrics", () => {
-  const context = useXenApiStoreSubscribableContext("host_metrics");
+export const useHostMetricsStore = defineStore('xen-api-host-metrics', () => {
+  const { context: baseContext, ...configRest } = createXapiStoreConfig('host_metrics')
 
   const getHostMemory = (host: XenApiHost) => {
-    const hostMetrics = context.getByOpaqueRef(host.metrics);
+    const hostMetrics = baseContext.getByOpaqueRef(host.metrics)
 
     if (hostMetrics !== undefined) {
-      const total = +hostMetrics.memory_total;
+      const total = +hostMetrics.memory_total
       return {
         usage: total - +hostMetrics.memory_free,
         size: total,
-      };
+      }
     }
-  };
+  }
 
   const isHostRunning = (host: XenApiHost) => {
-    return context.getByOpaqueRef(host.metrics)?.live === true;
-  };
+    return baseContext.getByOpaqueRef(host.metrics)?.live === true
+  }
 
-  return {
-    ...context,
+  const context = {
+    ...baseContext,
     getHostMemory,
     isHostRunning,
-  };
-});
+  }
 
-export const useHostMetricsCollection =
-  createUseCollection(useHostMetricsStore);
+  return createSubscribableStoreContext({ context, ...configRest }, {})
+})

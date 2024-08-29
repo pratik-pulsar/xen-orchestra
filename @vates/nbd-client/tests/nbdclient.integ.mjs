@@ -1,4 +1,3 @@
-import NbdClient from '../index.mjs'
 import { spawn, exec } from 'node:child_process'
 import fs from 'node:fs/promises'
 import { test } from 'tap'
@@ -7,8 +6,10 @@ import { pFromCallback } from 'promise-toolbox'
 import { Socket } from 'node:net'
 import { NBD_DEFAULT_PORT } from '../constants.mjs'
 import assert from 'node:assert'
+import MultiNbdClient from '../multi.mjs'
 
-const FILE_SIZE = 10 * 1024 * 1024
+const CHUNK_SIZE = 1024 * 1024 // non default size
+const FILE_SIZE = 1024 * 1024 * 9.5 // non aligned file size
 
 async function createTempFile(size) {
   const tmpPath = await pFromCallback(cb => tmp.file(cb))
@@ -77,15 +78,14 @@ async function killNbdKit() {
   )
 }
 
-test('it works with unsecured network', async tap => {
+test('it works secured network', async tap => {
   const path = await createTempFile(FILE_SIZE)
 
   let nbdServer = await spawnNbdKit(path)
-  const client = new NbdClient(
-    {
-      address: '127.0.0.1',
-      exportname: 'MY_SECRET_EXPORT',
-      cert: `-----BEGIN CERTIFICATE-----
+  const connectionSettings = {
+    address: '127.0.0.1',
+    exportname: 'MY_SECRET_EXPORT',
+    cert: `-----BEGIN CERTIFICATE-----
 MIIDazCCAlOgAwIBAgIUeHpQ0IeD6BmP2zgsv3LV3J4BI/EwDQYJKoZIhvcNAQEL
 BQAwRTELMAkGA1UEBhMCQVUxEzARBgNVBAgMClNvbWUtU3RhdGUxITAfBgNVBAoM
 GEludGVybmV0IFdpZGdpdHMgUHR5IEx0ZDAeFw0yMzA1MTcxMzU1MzBaFw0yNDA1
@@ -107,15 +107,21 @@ CYu1Xn/FVPx1HoRgWc7E8wFhDcA/P3SJtfIQWHB9FzSaBflKGR4t8WCE2eE8+cTB
 57ABhfYpMlZ4aHjuN1bL
 -----END CERTIFICATE-----
 `,
-    },
-    {
-      readAhead: 2,
-    }
-  )
+  }
+  const invalid = {
+    address: '500.500.500.500',
+    port: 0,
+    exportname: 'nop',
+  }
+  // it should work even with some broken servers
+  const nbdInfos = [connectionSettings, connectionSettings, invalid]
+  const client = new MultiNbdClient(nbdInfos, {
+    nbdConcurrency: 4,
+    readAhead: 2,
+  })
 
   await client.connect()
   tap.equal(client.exportSize, BigInt(FILE_SIZE))
-  const CHUNK_SIZE = 1024 * 1024 // non default size
   const indexes = []
   for (let i = 0; i < FILE_SIZE / CHUNK_SIZE; i++) {
     indexes.push(i)
@@ -127,9 +133,9 @@ CYu1Xn/FVPx1HoRgWc7E8wFhDcA/P3SJtfIQWHB9FzSaBflKGR4t8WCE2eE8+cTB
   })
   let i = 0
   for await (const block of nbdIterator) {
-    let blockOk = true
+    let blockOk = block.length === Math.min(CHUNK_SIZE, FILE_SIZE - CHUNK_SIZE * i)
     let firstFail
-    for (let j = 0; j < CHUNK_SIZE; j += 4) {
+    for (let j = 0; j < block.length; j += 4) {
       const wanted = i * CHUNK_SIZE + j
       const found = block.readUInt32BE(j)
       blockOk = blockOk && found === wanted
@@ -137,7 +143,7 @@ CYu1Xn/FVPx1HoRgWc7E8wFhDcA/P3SJtfIQWHB9FzSaBflKGR4t8WCE2eE8+cTB
         firstFail = j
       }
     }
-    tap.ok(blockOk, `check block ${i} content`)
+    tap.ok(blockOk, `check block ${i} content ${block.length}`)
     i++
 
     // flaky server is flaky
@@ -147,17 +153,6 @@ CYu1Xn/FVPx1HoRgWc7E8wFhDcA/P3SJtfIQWHB9FzSaBflKGR4t8WCE2eE8+cTB
       nbdServer = await spawnNbdKit(path)
     }
   }
-
-  // we can reuse the conneciton to read other blocks
-  // default iterator
-  const nbdIteratorWithDefaultBlockIterator = client.readBlocks()
-  let nb = 0
-  for await (const block of nbdIteratorWithDefaultBlockIterator) {
-    nb++
-    tap.equal(block.length, 2 * 1024 * 1024)
-  }
-
-  tap.equal(nb, 5)
   assert.rejects(() => client.readBlock(100, CHUNK_SIZE))
 
   await client.disconnect()
@@ -165,4 +160,19 @@ CYu1Xn/FVPx1HoRgWc7E8wFhDcA/P3SJtfIQWHB9FzSaBflKGR4t8WCE2eE8+cTB
   await client.disconnect()
   nbdServer.kill()
   await fs.unlink(path)
+})
+
+test('fails if server does not answer', async () => {
+  const client = new MultiNbdClient(
+    {
+      address: '500.500.500.500',
+      port: 0,
+      exportname: 'nop',
+    },
+    {
+      nbdConcurrency: 1,
+      readAhead: 2,
+    }
+  )
+  await assert.rejects(client.connect())
 })

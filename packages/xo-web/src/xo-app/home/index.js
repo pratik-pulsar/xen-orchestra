@@ -48,7 +48,6 @@ import {
   disconnectAllHostsSrs,
   emergencyShutdownHosts,
   forgetSrs,
-  isSrShared,
   migrateVms,
   pauseVms,
   reconnectAllHostsSrs,
@@ -222,6 +221,15 @@ const OPTIONS = {
       {
         labelId: 'homeSortByStartTime',
         sortBy: 'startTime',
+
+        // move VM with no start time at the end
+        sortByFn: ({ startTime }) => (startTime === null ? -Infinity : startTime),
+        sortOrder: 'desc',
+      },
+      {
+        labelId: 'homeSortByInstallTime',
+        sortBy: 'installTime',
+        sortByFn: ({ installTime }) => (installTime === null ? -Infinity : installTime),
         sortOrder: 'desc',
       },
     ],
@@ -288,7 +296,7 @@ const OPTIONS = {
         sortOrder: 'desc',
         default: true,
       },
-      { labelId: 'homeSortByShared', sortBy: isSrShared, sortOrder: 'desc' },
+      { labelId: 'homeSortByShared', sortBy: 'shared', sortOrder: 'desc' },
       {
         labelId: 'homeSortByUsage',
         sortBy: 'physicalUsageBySize',
@@ -555,6 +563,11 @@ export default class Home extends Component {
   _setNItemsPerPage(nItems) {
     this.setState({ homeItemsPerPage: nItems })
     cookies.set('homeItemsPerPage', nItems)
+
+    // changing the number of items per page should send back to the first page
+    //
+    // see https://github.com/vatesfr/xen-orchestra/issues/7350
+    this._onPageSelection(1)
   }
 
   _getPage() {
@@ -736,7 +749,12 @@ export default class Home extends Component {
     ),
     createSelector(
       () => this.state.sortBy,
-      sortBy => [sortBy, 'name_label']
+      sortBy => {
+        const { sortOptions } = OPTIONS[this.props.type]
+        const sort = find(sortOptions, { sortBy })
+
+        return [(sort && sort.sortByFn) || sortBy, 'name_label']
+      }
     ),
     () => this.state.sortOrder
   )
@@ -812,7 +830,7 @@ export default class Home extends Component {
         ? ComplexMatcher.setPropertyClause(
             filter,
             'tags',
-            new ComplexMatcher.Or(map(tags, tag => new ComplexMatcher.RegExp(`^${escapeRegExp(tag.id)}$`, 'i')))
+            new ComplexMatcher.Or(map(tags, tag => new ComplexMatcher.RegExp(`^${escapeRegExp(tag.id)}$`)))
           )
         : ComplexMatcher.setPropertyClause(filter, 'tags', undefined)
     )

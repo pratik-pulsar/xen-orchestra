@@ -12,7 +12,7 @@ import { synchronized } from 'decorator-synchronized'
 
 import { basename, dirname, normalize as normalizePath } from './path'
 import { createChecksumStream, validChecksumOfReadStream } from './checksum'
-import { DEFAULT_ENCRYPTION_ALGORITHM, _getEncryptor } from './_encryptor'
+import { DEFAULT_ENCRYPTION_ALGORITHM, UNENCRYPTED_ALGORITHM, _getEncryptor } from './_encryptor'
 
 const { info, warn } = createLogger('xo:fs:abstract')
 
@@ -364,7 +364,7 @@ export default class RemoteHandlerAbstract {
     let data
     try {
       // this file is not encrypted
-      data = await this._readFile(normalizePath(ENCRYPTION_DESC_FILENAME), 'utf-8')
+      data = await this._readFile(normalizePath(ENCRYPTION_DESC_FILENAME))
       const json = JSON.parse(data)
       encryptionAlgorithm = json.algorithm
     } catch (error) {
@@ -377,7 +377,7 @@ export default class RemoteHandlerAbstract {
     try {
       this.#rawEncryptor = _getEncryptor(encryptionAlgorithm, this._remote.encryptionKey)
       // this file is encrypted
-      const data = await this.__readFile(ENCRYPTION_METADATA_FILENAME, 'utf-8')
+      const data = await this.__readFile(ENCRYPTION_METADATA_FILENAME)
       JSON.parse(data)
     } catch (error) {
       // can be enoent, bad algorithm, or broeken json ( bad key or algorithm)
@@ -673,6 +673,10 @@ export default class RemoteHandlerAbstract {
 
   get isEncrypted() {
     return this.#encryptor.id !== 'NULL_ENCRYPTOR'
+  }
+
+  get encryptionAlgorithm() {
+    return this.#encryptor?.algorithm ?? UNENCRYPTED_ALGORITHM
   }
 }
 

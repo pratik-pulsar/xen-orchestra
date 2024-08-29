@@ -11,16 +11,19 @@ import React from 'react'
 import renderXoItem from 'render-xo-item'
 import SelectBootFirmware from 'select-boot-firmware'
 import SelectCoresPerSocket from 'select-cores-per-socket'
+import semver from 'semver'
+import SortedTable from 'sorted-table'
+import StateButton from 'state-button'
 import TabButton from 'tab-button'
 import Tooltip from 'tooltip'
-import { error } from 'notification'
+import { error, success } from 'notification'
 import { confirm } from 'modal'
 import { Container, Row, Col } from 'grid'
 import { CustomFields } from 'custom-fields'
 import { injectState, provideState } from 'reaclette'
 import { Number, Select as EditableSelect, Size, Text, XoSelect } from 'editable'
 import { Select, Toggle } from 'form'
-import { SelectResourceSet, SelectRole, SelectSubject, SelectVgpuType } from 'select-objects'
+import { SelectResourceSet, SelectRole, SelectSubject, SelectUser, SelectVgpuType } from 'select-objects'
 import { addSubscriptions, connectStore, formatSize, getVirtualizationModeLabel, osFamily } from 'utils'
 import { every, filter, find, isEmpty, keyBy, map, times, some, uniq } from 'lodash'
 import {
@@ -30,12 +33,16 @@ import {
   convertVmToTemplate,
   createVgpu,
   createVtpm,
+  createVusb,
   deleteVgpu,
   deleteVm,
   deleteVtpm,
+  deleteVusb,
   editVm,
   getVmsHaValues,
+  isPciPassthroughAvailable,
   isVmRunning,
+  coalesceLeafVm,
   pauseVm,
   recoveryStartVm,
   removeAcl,
@@ -48,6 +55,10 @@ import {
   subscribeResourceSets,
   subscribeUsers,
   suspendVm,
+  unplugVusb,
+  vmAttachPcis,
+  vmDetachPcis,
+  vmSetUefiMode,
   vmWarmMigration,
   XEN_DEFAULT_CPU_CAP,
   XEN_DEFAULT_CPU_WEIGHT,
@@ -58,6 +69,9 @@ import { getXoaPlan, PREMIUM } from 'xoa-plans'
 import { SelectSuspendSr } from 'select-suspend-sr'
 
 import BootOrder from './boot-order'
+import VusbCreateModal from './vusb-create-modal'
+import PciAttachModal from './pci-attach-modal'
+import { subscribeSecurebootReadiness, subscribeGetGuestSecurebootReadiness } from '../../common/xo'
 
 // Button's height = react-select's height(36 px) + react-select's border-width(1 px) * 2
 // https://github.com/JedWatson/react-select/blob/916ab0e62fc7394be8e24f22251c399a68de8b1c/less/select.less#L21, L22
@@ -79,6 +93,114 @@ const STOP_OPERATIONS = [
   // Even though it's not recognized by `xe (as of 2021-08), it's a valid operation
   'shutdown',
 ]
+
+const VUSB_COLUMNS = [
+  {
+    name: _('id'),
+    itemRenderer: vusb => {
+      const { uuid } = vusb
+      return (
+        <Copiable data={uuid} tagName='p'>
+          {uuid.slice(4, 8)}
+        </Copiable>
+      )
+    },
+  },
+  {
+    name: _('pusbDescription'),
+    itemRenderer: (vusb, { pusbsByUsbGroup }) => pusbsByUsbGroup[vusb.usbGroup].description,
+  },
+  {
+    name: _('pusbVersion'),
+    itemRenderer: (vusb, { pusbsByUsbGroup }) => pusbsByUsbGroup[vusb.usbGroup].version,
+  },
+  {
+    name: _('pusbSpeed'),
+    itemRenderer: (vusb, { pusbsByUsbGroup }) => pusbsByUsbGroup[vusb.usbGroup].speed,
+  },
+  {
+    name: _('status'),
+    itemRenderer: ({ currentlyAttached, uuid }) => (
+      <StateButton
+        disabled={!currentlyAttached}
+        disabledLabel={_('statusDisconnected')}
+        disabledTooltip={_('vusbRemainUnplugged')}
+        enabledLabel={_('connected')}
+        enabledHandler={unplugVusb}
+        enabledTooltip={_('vusbUnplugTooltip')}
+        state={currentlyAttached}
+        handlerParam={uuid}
+      />
+    ),
+  },
+]
+
+const PCI_COLUMNS = [
+  {
+    name: _('id'),
+    itemRenderer: (pciId, { pciByPciId }) => {
+      const pci = pciByPciId[pciId]
+      if (pci === undefined) {
+        return _('unknown')
+      }
+      const { uuid } = pci
+      return (
+        <Copiable data={uuid} tagName='p'>
+          {uuid.slice(4, 8)}
+        </Copiable>
+      )
+    },
+  },
+  {
+    default: true,
+    name: _('pciId'),
+    itemRenderer: pciId => pciId,
+    sortCriteria: pciId => pciId,
+  },
+  {
+    name: _('className'),
+    itemRenderer: (pciId, { pciByPciId }) => {
+      const pci = pciByPciId[pciId]
+      return pci === undefined ? _('unknown') : pci.class_name
+    },
+    sortCriteria: (pciId, { pciByPciId }) => pciByPciId[pciId]?.class_name,
+  },
+  {
+    name: _('deviceName'),
+    itemRenderer: (pciId, { pciByPciId }) => {
+      const pci = pciByPciId[pciId]
+      return pci === undefined ? _('unknown') : pci.device_name
+    },
+    sortCriteria: (pciId, { pciByPciId }) => pciByPciId[pciId]?.device_name,
+  },
+]
+
+const VUSB_INDIVIDUAL_ACTIONS = [
+  {
+    handler: deleteVusb,
+    icon: 'delete',
+    label: _('delete'),
+    level: 'danger',
+  },
+]
+
+const PCI_ACTIONS = [
+  {
+    handler: (pciIds, { vm }) => vmDetachPcis(vm, pciIds),
+    icon: 'disconnect',
+    label: _('detach'),
+    level: 'danger',
+  },
+]
+
+const SECUREBOOT_STATUS_MESSAGES = {
+  disabled: _('secureBootNotEnforced'),
+  first_boot: _('secureBootWantedPendingBoot'),
+  ready: _('secureBootEnforced'),
+  ready_no_dbx: _('secureBootNoDbx'),
+  setup_mode: _('secureBootWantedButDisabled'),
+  certs_incomplete: _('secureBootWantedButCertificatesMissing'),
+}
 
 const forceReboot = vm => restartVm(vm, true)
 const forceShutdown = vm => stopVm(vm, true)
@@ -399,16 +521,47 @@ const NIC_TYPE_OPTIONS = [
   },
 ]
 
+@addSubscriptions(({ vm }) => ({
+  vmSecurebootReadiness: subscribeSecurebootReadiness(vm),
+  poolGuestSecurebootReadiness: subscribeGetGuestSecurebootReadiness(vm.$pool),
+}))
 @connectStore(() => {
   const getVgpus = createGetObjectsOfType('vgpu').pick((_, { vm }) => vm.$VGPUs)
   const getGpuGroup = createGetObjectsOfType('gpuGroup').pick(createSelector(getVgpus, vgpus => map(vgpus, 'gpuGroup')))
+  const getVusbs = createGetObjectsOfType('VUSB').filter(
+    (_, { vm }) =>
+      vusb =>
+        vusb.vm === vm.id
+  )
+  const getPcisbByHost = createGetObjectsOfType('PCI').groupBy('$host')
+  const getPusbs = createGetObjectsOfType('PUSB')
+  const getAvailablePusbs = getPusbs
+    .pick(
+      createSelector(createGetObjectsOfType('USB_group'), usbGroups =>
+        map(
+          filter(usbGroups, usbGroup => usbGroup.VUSBs[0] === undefined),
+          usbGroup => usbGroup.PUSBs
+        )
+      )
+    )
+    .sort()
+  const getVmHosts = createGetObjectsOfType('host').filter(
+    (_, { vm }) =>
+      host =>
+        host.$pool === vm.$pool
+  )
 
-  return {
-    gpuGroup: getGpuGroup,
-    isAdmin,
-    vgpus: getVgpus,
-    vmPool: createGetObject((_, props) => get(() => props.vm.$pool)),
-  }
+  return (state, props) => ({
+    availablePusbs: getAvailablePusbs(state, props),
+    gpuGroup: getGpuGroup(state, props),
+    isAdmin: isAdmin(state, props),
+    vgpus: getVgpus(state, props),
+    vmPool: createGetObject((_, props) => get(() => props.vm.$pool))(state, props),
+    pcisByHost: getPcisbByHost(state, props),
+    pusbByUsbGroup: keyBy(getPusbs(state, props), 'usbGroup'),
+    vmHosts: getVmHosts(state, props),
+    vusbs: getVusbs(state, props),
+  })
 })
 export default class TabAdvanced extends Component {
   componentDidMount() {
@@ -487,14 +640,96 @@ export default class TabAdvanced extends Component {
     return deleteVtpm(vtpm)
   }
 
+  _updateUser = user => editVm(this.props.vm, { creation: { user: user.id } })
+
+  _createVusb = async () => {
+    const pusb = await confirm({
+      title: _('createVusb'),
+      body: <VusbCreateModal pusbs={this.props.availablePusbs} />,
+      icon: 'add',
+    })
+    return createVusb(this.props.vm, pusb.usbGroup)
+  }
+
+  _attachPcis = async () => {
+    const { vm, vmPool } = this.props
+    const pcis = await confirm({
+      body: (
+        <PciAttachModal attachedPciIds={vm.attachedPcis} pcisByHost={this.props.pcisByHost} vm={vm} pool={vmPool} />
+      ),
+      icon: 'add',
+      title: _('attachPcis'),
+    })
+    await vmAttachPcis(vm, pcis)
+  }
+
+  _getPcis = createSelector(
+    () => this.props.vm,
+    () => this.props.pcisByHost,
+    (vm, pcisByHost) => {
+      if (!isVmRunning(vm) && vm.power_state !== 'Paused') {
+        // If the VM is not running, it's not attached to any host, therefore,
+        // we cannot determine which XAPI PCI object is associated with the given PCI_ID (eg: 0000:01:00.4).
+        // This determination depends on the specific host environment.
+        return {}
+      }
+      return keyBy(pcisByHost[vm.$container], 'pci_id')
+    }
+  )
+
+  _getPciAttachButtonTooltip = () => {
+    const { vm, vmHosts, vmPool } = this.props
+    const vmAttachedToHost = vm.$container !== vm.$pool
+
+    if ((vmAttachedToHost && vmHosts[vm.$container] === undefined) || (!vmAttachedToHost && vmPool === undefined)) {
+      return _('notEnoughPermissionsError')
+    }
+
+    return !isPciPassthroughAvailable(vmHosts[vmAttachedToHost ? vm.$container : vmPool.master])
+      ? _('onlyAvailableXcp8.3OrHigher')
+      : undefined
+  }
+
+  _confirmUefiMode = async () => {
+    const { vm, vmSecurebootReadiness } = this.props
+    const confirmNeeded =
+      vmSecurebootReadiness === 'disabled' ||
+      vmSecurebootReadiness === 'ready' ||
+      vmSecurebootReadiness === 'ready_no_dbx'
+
+    if (confirmNeeded) {
+      await confirm({
+        title: _('propagateCertificatesTitle'),
+        body: <p>{_('propagateCertificatesConfirm')}</p>,
+      })
+    }
+
+    await vmSetUefiMode(vm, 'user')
+    success(_('propagateCertificatesTitle'), _('propagateCertificatesSuccessful'))
+  }
+
   render() {
-    const { container, isAdmin, vgpus, vm, vmPool } = this.props
+    const {
+      container,
+      isAdmin,
+      poolGuestSecurebootReadiness,
+      pusbByUsbGroup,
+      vgpus,
+      vm,
+      vmPool,
+      vmSecurebootReadiness,
+      vusbs,
+    } = this.props
     const isWarmMigrationAvailable = getXoaPlan().value >= PREMIUM.value
     const addVtpmTooltip = this._getDisabledAddVtpmReason()
     const deleteVtpmTooltip = this._getDisabledDeleteVtpmReason()
+    const host = this.props.vmHosts[vm.$container]
     const isAddVtpmAvailable = addVtpmTooltip === undefined
     const isDeleteVtpmAvailable = deleteVtpmTooltip === undefined
+    const isDisabled = poolGuestSecurebootReadiness === 'not_ready' || vm.boot.firmware !== 'uefi'
     const vtpmId = vm.VTPMs[0]
+    const pciAttachButtonTooltip = this._getPciAttachButtonTooltip()
+
     return (
       <Container>
         <Row>
@@ -514,6 +749,13 @@ export default class TabAdvanced extends Component {
                   handlerParam={vm}
                   icon='vm-suspend'
                   labelId='suspendVmLabel'
+                />
+                <TabButton
+                  btnStyle='primary'
+                  handler={coalesceLeafVm}
+                  handlerParam={vm}
+                  icon='vm-coalesce-leaf'
+                  labelId='coalesceLeaf'
                 />
                 <TabButton
                   btnStyle='warning'
@@ -562,6 +804,13 @@ export default class TabAdvanced extends Component {
                   icon='vm-clone'
                   labelId='cloneVmLabel'
                 />
+                <TabButton
+                  btnStyle='primary'
+                  handler={coalesceLeafVm}
+                  handlerParam={vm}
+                  icon='vm-coalesce-leaf'
+                  labelId='coalesceLeaf'
+                />
               </span>
             )}
             {vm.power_state === 'Suspended' && (
@@ -572,6 +821,13 @@ export default class TabAdvanced extends Component {
                   handlerParam={vm}
                   icon='vm-start'
                   labelId='resumeVmLabel'
+                />
+                <TabButton
+                  btnStyle='primary'
+                  handler={coalesceLeafVm}
+                  handlerParam={vm}
+                  icon='vm-coalesce-leaf'
+                  labelId='coalesceLeaf'
                 />
                 <TabButton
                   btnStyle='warning'
@@ -713,7 +969,17 @@ export default class TabAdvanced extends Component {
                   </td>
                 </tr>
                 <tr>
-                  <th>{_('autoPowerOn')}</th>
+                  <th>
+                    {_('autoPowerOn')}
+                    {vm.auto_poweron && vmPool !== undefined && !vmPool.auto_poweron && (
+                      <Tooltip content={_('poolAutoPoweronDisabled')}>
+                        <a className='btn btn-link btn-sm' onClick={() => editVm(vm, { auto_poweron: true })}>
+                          {' '}
+                          <Icon icon='alarm' className='text-warning' />
+                        </a>
+                      </Tooltip>
+                    )}
+                  </th>
                   <td>
                     <Toggle value={Boolean(vm.auto_poweron)} onChange={value => editVm(vm, { auto_poweron: value })} />
                   </td>
@@ -837,9 +1103,86 @@ export default class TabAdvanced extends Component {
                         onChange={this._handleBootFirmware}
                         value={defined(() => vm.boot.firmware, '')}
                       />
+                      {/**
+                       * Templates report UEFI is not supported
+                       * See https://xcp-ng.org/forum/post/76412
+                       */}
+                      {vm.boot.firmware !== 'uefi' && !vm.isFirmwareSupported && (
+                        <span className='text-danger font-weight-bold'>
+                          <Icon icon='error' /> {_('firmwareNotSupported')}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 )}
+                <tr>
+                  <th>{_('secureBoot')}</th>
+                  <td>
+                    <Tooltip content={vm.boot.firmware !== 'uefi' ? _('availableForUefiOnly') : undefined}>
+                      <Toggle
+                        disabled={vm.boot.firmware !== 'uefi'}
+                        value={vm.secureBoot}
+                        onChange={value => editVm(vm, { secureBoot: value })}
+                      />
+                    </Tooltip>
+                    <a
+                      className='text-muted'
+                      href='https://xcp-ng.org/docs/guides.html#guest-uefi-secure-boot'
+                      rel='noreferrer'
+                      style={{ display: 'block' }}
+                      target='_blank'
+                    >
+                      <Icon icon='info' /> {_('secureBootLinkToDocumentationMessage')}
+                    </a>
+                  </td>
+                </tr>
+                {vm.boot.firmware === 'uefi' &&
+                  semver.satisfies(host?.version, '>=8.3.0') && [
+                    <tr key='secureBootStatus'>
+                      <th>{_('secureBootStatus')}</th>
+                      <td>
+                        {SECUREBOOT_STATUS_MESSAGES[vmSecurebootReadiness]}
+                        {(vmSecurebootReadiness === 'setup_mode' ||
+                          vmSecurebootReadiness === 'certs_incomplete' ||
+                          vmSecurebootReadiness === 'ready_no_dbx') &&
+                          host?.productBrand === 'XCP-ng' && (
+                            <a
+                              className='text-warning'
+                              href='https://docs.xcp-ng.org/guides/guest-UEFI-Secure-Boot/#troubleshoot-guest-secure-boot-issues'
+                              rel='noreferrer'
+                              style={{ display: 'block' }}
+                              target='_blank'
+                            >
+                              <Icon icon='alarm' /> {_('secureBootLinkToDocumentationMessage')}
+                            </a>
+                          )}
+                      </td>
+                    </tr>,
+                    <tr key='propagateCertificatesButton'>
+                      <th>{_('propagateCertificatesTitle')} </th>
+                      <td>
+                        <ActionButton
+                          btnStyle='primary'
+                          disabled={isDisabled}
+                          handler={this._confirmUefiMode}
+                          icon='vm-clone'
+                        >
+                          {_('propagateCertificates')}
+                        </ActionButton>
+                        {poolGuestSecurebootReadiness === 'not_ready' && (
+                          <a
+                            className='text-warning'
+                            href='https://docs.xcp-ng.org/guides/guest-UEFI-Secure-Boot/#configure-the-pool'
+                            rel='noreferrer'
+                            style={{ display: 'block' }}
+                            target='_blank'
+                          >
+                            <Icon icon='alarm' /> {_('noSecureBoot')}
+                          </a>
+                        )}
+                      </td>
+                    </tr>,
+                  ]}
                 <tr>
                   <th>{_('vtpm')}</th>
                   <td>
@@ -893,23 +1236,6 @@ export default class TabAdvanced extends Component {
                     )}
                   </td>
                 </tr>
-                {vm.boot.firmware === 'uefi' && (
-                  <tr>
-                    <th>{_('secureBoot')}</th>
-                    <td>
-                      <Toggle value={vm.secureBoot} onChange={value => editVm(vm, { secureBoot: value })} />
-                      <a
-                        className='text-muted'
-                        href='https://xcp-ng.org/docs/guides.html#guest-uefi-secure-boot'
-                        rel='noopener noreferrer'
-                        style={{ display: 'block' }}
-                        target='_blank'
-                      >
-                        <Icon icon='info' /> {_('secureBootLinkToDocumentationMessage')}
-                      </a>
-                    </td>
-                  </tr>
-                )}
                 <tr>
                   <th>{_('customFields')}</th>
                   <td>
@@ -1006,6 +1332,44 @@ export default class TabAdvanced extends Component {
               </tbody>
             </table>
             <br />
+            <h3>{_('vusbs')}</h3>
+            <ActionButton btnStyle='primary' handler={this._createVusb} icon='add'>
+              {_('createVusb')}
+            </ActionButton>
+            <SortedTable
+              collection={vusbs}
+              columns={VUSB_COLUMNS}
+              data-pusbsByUsbGroup={pusbByUsbGroup}
+              individualActions={VUSB_INDIVIDUAL_ACTIONS}
+            />
+            <br />
+            <h3>{_('attachedPcis')}</h3>
+            <div className='text-info'>
+              <i className='d-block'>
+                <Icon icon='info' /> {_('infoUnknownPciOnNonRunningVm')}
+              </i>
+              <i className='d-block'>
+                <Icon icon='info' /> {_('attachingDetachingPciNeedVmBoot')}
+              </i>
+            </div>
+            <ActionButton
+              btnStyle='primary'
+              disabled={pciAttachButtonTooltip !== undefined}
+              handler={this._attachPcis}
+              icon='connect'
+              tooltip={pciAttachButtonTooltip}
+            >
+              {_('attachPcis')}
+            </ActionButton>
+            <SortedTable
+              actions={PCI_ACTIONS}
+              collection={vm.attachedPcis}
+              columns={PCI_COLUMNS}
+              data-pciByPciId={this._getPcis()}
+              data-vm={vm}
+              stateUrlParam='s_pcis'
+            />
+            <br />
             <h3>{_('miscLabel')}</h3>
             <table className='table table-hover'>
               <tbody>
@@ -1023,6 +1387,12 @@ export default class TabAdvanced extends Component {
                     </td>
                   </tr>
                 )}
+                <tr>
+                  <th>{_('vmCreator')}</th>
+                  <td>
+                    <SelectUser onChange={this._updateUser} value={vm.creation?.user} />
+                  </td>
+                </tr>
               </tbody>
             </table>
           </Col>

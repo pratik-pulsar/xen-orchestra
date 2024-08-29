@@ -1,9 +1,17 @@
+import TTLCache from '@isaacs/ttlcache'
+import semver from 'semver'
 import { createLogger } from '@xen-orchestra/log'
 import assert from 'assert'
 import { format } from 'json-rpc-peer'
 import { incorrectState } from 'xo-common/api-errors.js'
 
 import backupGuard from './_backupGuard.mjs'
+
+const IPMI_CACHE_TTL = 6e4
+const IPMI_CACHE = new TTLCache({
+  ttl: IPMI_CACHE_TTL,
+  max: 1000,
+})
 
 const log = createLogger('xo:api:host')
 
@@ -128,7 +136,49 @@ export async function restart({
 
   bypassBlockedSuspend = force,
   bypassCurrentVmCheck = force,
+  bypassVersionCheck = force,
 }) {
+  if (bypassVersionCheck) {
+    log.warn('host.restart with argument "bypassVersionCheck" set to true', { hostId: host.id })
+  } else {
+    const pool = this.getObject(host.$poolId, 'pool')
+    const master = this.getObject(pool.master, 'host')
+    const hostRebootRequired = host.rebootRequired
+
+    // we are currently in an host upgrade process
+    if (hostRebootRequired && host.id !== master.id) {
+      // this error is not ideal but it means that the pool master must be fully upgraded/rebooted before the current host can be rebooted.
+      //
+      // there is a single error for the 3 cases because the client must handle them the same way
+      const throwError = () =>
+        incorrectState({
+          actual: hostRebootRequired,
+          expected: false,
+          object: master.id,
+          property: 'rebootRequired',
+        })
+
+      if (semver.lt(master.version, host.version)) {
+        log.error(`master version (${master.version}) is older than the host version (${host.version})`, {
+          masterId: master.id,
+          hostId: host.id,
+        })
+        throwError()
+      }
+
+      if (semver.eq(master.version, host.version)) {
+        if ((await this.getXapi(host).listMissingPatches(master._xapiId)).length > 0) {
+          log.error('master has missing patches', { masterId: master.id })
+          throwError()
+        }
+        if (master.rebootRequired) {
+          log.error('master needs to reboot')
+          throwError()
+        }
+      }
+    }
+  }
+
   if (bypassBackupCheck) {
     log.warn('host.restart with argument "bypassBackupCheck" set to true', { hostId: host.id })
   } else {
@@ -164,6 +214,10 @@ restart.params = {
   suspendResidentVms: {
     type: 'boolean',
     default: false,
+  },
+  bypassVersionCheck: {
+    type: 'boolean',
+    optional: true,
   },
 }
 
@@ -543,5 +597,15 @@ getBlockdevices.params = {
 }
 
 getBlockdevices.resolve = {
+  host: ['id', 'host', 'administrate'],
+}
+
+export function getIpmiSensors({ host }) {
+  return this.getXapi(host).host_getIpmiSensors(host._xapiRef, { cache: IPMI_CACHE })
+}
+getIpmiSensors.params = {
+  id: { type: 'string' },
+}
+getIpmiSensors.resolve = {
   host: ['id', 'host', 'administrate'],
 }

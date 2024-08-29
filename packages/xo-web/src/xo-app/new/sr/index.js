@@ -27,6 +27,7 @@ import {
   createSrLvm,
   createSrNfs,
   createSrHba,
+  createSrSmb,
   createSrZfs,
   probeSrIscsiExists,
   probeSrIscsiIqns,
@@ -53,8 +54,8 @@ class SelectScsiId extends Component {
   _getOptions = createSelector(
     () => this.props.options,
     options =>
-      map(options, ({ id, path, scsiId, serial, size, vendor }) => ({
-        label: `${vendor} ${id}: ${serial} - ${path} (${formatSize(size)})`,
+      map(options, ({ id, path, scsiId, size, vendor, lun }) => ({
+        label: `${vendor} ${id}: ${scsiId} - LUN: ${lun} - ${path} (${formatSize(size)})`,
         value: scsiId,
       }))
   )
@@ -176,6 +177,7 @@ const SR_TYPE_TO_LABEL = {
   nfs: 'NFS',
   nfsiso: 'NFS ISO',
   smb: 'SMB',
+  smbiso: 'SMB ISO',
   zfs: 'ZFS (local)',
 }
 
@@ -187,8 +189,8 @@ const SR_GROUP_TO_LABEL = {
 const SR_TYPE_REQUIRE_DISK_FORMATTING = ['ext', 'lvm']
 
 const typeGroups = {
-  vdisr: ['ext', 'hba', 'iscsi', 'lvm', 'nfs', 'zfs'],
-  isosr: ['local', 'nfsiso', 'smb'],
+  vdisr: ['ext', 'hba', 'iscsi', 'lvm', 'nfs', 'smb', 'zfs'],
+  isosr: ['local', 'nfsiso', 'smbiso'],
 }
 
 const getSrPath = id => (id !== undefined ? `/srs/${id}` : undefined)
@@ -232,7 +234,7 @@ export default class New extends Component {
     () => this.props.srs,
     createSelector(
       () => this.state.host,
-      host => host !== undefined && (sr => sr.$container === host.$pool || sr.$container === host.id)
+      host => host != null && (sr => sr.$container === host.$pool || sr.$container === host.id)
     )
   )
 
@@ -278,6 +280,7 @@ export default class New extends Component {
           nfsOptions,
           srUuid
         ),
+      smb: () => createSrSmb(host.id, name.value, description.value, server.value, username.value, password.value),
       hba: async () => {
         if (srUuid === undefined) {
           const previous = await probeSrHbaExists(host.id, scsiId)
@@ -346,7 +349,7 @@ export default class New extends Component {
           nfsOptions,
           srUuid
         ),
-      smb: () =>
+      smbiso: () =>
         createSrIso(
           host.id,
           name.value,
@@ -366,6 +369,18 @@ export default class New extends Component {
         await confirm({
           title: _('newSr'),
           body: <p>{_('newSrConfirm', { name: device.value })}</p>,
+        })
+      }
+      const existingSrsLength = this.state.existingSrs?.length ?? 0
+      // `existingsSrs` is defined if the SR type is `NFS` or `ISCSI` and if at least one SR is detected
+      // Ignore NFS type because it is not supposed to erase data
+      if (type !== 'nfs' && existingSrsLength !== 0 && srUuid === undefined) {
+        await confirm({
+          title: _('newSr'),
+          body: _('newSrExistingSr', { path: <b>{this.state.path}</b>, n: existingSrsLength }),
+          strongConfirm: {
+            messageId: 'newSrTitle',
+          },
         })
       }
       return await createMethodFactories[type]()
@@ -391,7 +406,7 @@ export default class New extends Component {
       hbaDevices: undefined,
       iqns: undefined,
       paths: undefined,
-      summary: includes(['ext', 'lvm', 'local', 'smb', 'hba', 'zfs'], type),
+      summary: includes(['ext', 'lvm', 'local', 'smb', 'smbiso', 'hba', 'zfs'], type),
       type,
       usage: undefined,
     })
@@ -803,7 +818,7 @@ export default class New extends Component {
                       <SelectLun options={luns} onChange={this._handleSrLunSelection} />
                     </fieldset>
                   )}
-                  {type === 'smb' && (
+                  {(type === 'smb' || type === 'smbiso') && (
                     <fieldset>
                       <label htmlFor='srServer'>{_('newSrServer')}</label>
                       <input
@@ -820,15 +835,10 @@ export default class New extends Component {
                         className='form-control'
                         placeholder={formatMessage(messages.newSrUsernamePlaceHolder)}
                         ref='username'
-                        required
                         type='text'
                       />
                       <label>{_('newSrPassword')}</label>
-                      <Password
-                        placeholder={formatMessage(messages.newSrPasswordPlaceHolder)}
-                        ref='password'
-                        required
-                      />
+                      <Password placeholder={formatMessage(messages.newSrPasswordPlaceHolder)} ref='password' />
                     </fieldset>
                   )}
                   {(type === 'lvm' || type === 'ext') && (

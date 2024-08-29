@@ -108,7 +108,7 @@ const INDIVIDUAL_ACTIONS = [
   {
     collapsed: true,
     disabled: ({ vmUuid }) => vmUuid === undefined,
-    handler: (proxy, { upgradeAppliance }) => upgradeAppliance(proxy.id, { ignoreRunningJobs: true }),
+    handler: (proxy, { upgradeAppliance }) => upgradeAppliance(proxy.id, { force: true }),
     icon: 'upgrade',
     label: _('forceUpgrade'),
     level: 'primary',
@@ -169,7 +169,10 @@ const COLUMNS = [
       if (proxy.vmUuid === undefined) {
         return (
           <span className='text-danger'>
-            {_('proxyUnknownVm')} <a href='https://xen-orchestra.com/'>{_('contactUs')}</a>
+            {_('proxyUnknownVm')}{' '}
+            <a href='https://xen-orchestra.com/' target='_blank' rel='noreferrer'>
+              {_('contactUs')}
+            </a>
           </span>
         )
       }
@@ -229,13 +232,7 @@ const COLUMNS = [
       if (state.endsWith('-upgrade-needed')) {
         return (
           <div>
-            <ActionButton
-              btnStyle='success'
-              disabled={proxy.vmUuid === undefined}
-              handler={upgradeAppliance}
-              handlerParam={proxy.id}
-              icon='upgrade'
-            >
+            <ActionButton btnStyle='success' handler={upgradeAppliance} handlerParam={proxy.id} icon='upgrade'>
               {_('upgrade')}
             </ActionButton>
             <p className='text-warning'>
@@ -282,26 +279,47 @@ const Proxies = decorate([
     initialState: () => ({
       upgradesByProxy: {},
       licensesByVmUuid: {},
+      fetchUpgradesTimeout: undefined,
     }),
     effects: {
       async initialize({ fetchProxyUpgrades }) {
-        this.state.licensesByVmUuid = groupBy(await getLicenses({ productType: 'xoproxy' }), 'boundObjectId')
-        return fetchProxyUpgrades(this.props.proxies.map(({ id }) => id))
-      },
-      async fetchProxyUpgrades(effects, proxies) {
-        const upgradesByProxy = { ...this.state.upgradesByProxy }
-        await Promise.all(
-          proxies.map(async id => {
-            upgradesByProxy[id] = await getProxyApplianceUpdaterState(id).catch(e => ({
-              state: 'error',
-              message: _('proxyUpgradesError'),
-            }))
-          })
+        fetchProxyUpgrades()
+
+        this.state.licensesByVmUuid = groupBy(
+          await getLicenses({ productType: 'xoproxy' }).catch(error => {
+            console.warn(error)
+            return []
+          }),
+          'boundObjectId'
         )
-        this.state.upgradesByProxy = upgradesByProxy
+      },
+      finalize() {
+        clearTimeout(this.state.fetchUpgradesTimeout)
+      },
+      async fetchProxyUpgrades({ fetchProxyUpgrades }) {
+        clearTimeout(this.state.fetchUpgradesTimeout)
+
+        try {
+          const upgradesByProxy = { ...this.state.upgradesByProxy }
+          await Promise.all(
+            this.props.proxies.map(async ({ id }) => {
+              upgradesByProxy[id] = await getProxyApplianceUpdaterState(id).catch(e => ({
+                state: 'error',
+                message: _('proxyUpgradesError'),
+              }))
+            })
+          )
+          this.state.upgradesByProxy = upgradesByProxy
+        } catch (error) {
+          console.warn('fetchProxyUpgrades', error)
+        }
+
+        this.state.fetchUpgradesTimeout = setTimeout(fetchProxyUpgrades, 30e3)
       },
       async deployProxy({ fetchProxyUpgrades }, proxy) {
-        return fetchProxyUpgrades([await deployProxy(proxy)])
+        await deployProxy(proxy)
+
+        return fetchProxyUpgrades()
       },
       async upgradeAppliance({ fetchProxyUpgrades }, id, options) {
         try {
@@ -324,7 +342,7 @@ const Proxies = decorate([
 
           await upgradeProxyAppliance(id, { ignoreRunningJobs: true })
         }
-        return fetchProxyUpgrades([id])
+        return fetchProxyUpgrades()
       },
     },
     computed: {

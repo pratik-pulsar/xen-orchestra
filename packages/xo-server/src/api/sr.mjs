@@ -2,12 +2,12 @@ import asyncMapSettled from '@xen-orchestra/async-map/legacy.js'
 import filter from 'lodash/filter.js'
 import isEmpty from 'lodash/isEmpty.js'
 import some from 'lodash/some.js'
+import throttle from 'lodash/throttle.js'
 
 import ensureArray from '../_ensureArray.mjs'
 import { asInteger } from '../xapi/utils.mjs'
-import { debounceWithKey } from '../_pDebounceWithKey.mjs'
 import { destroy as destroyXostor } from './xostor.mjs'
-import { forEach, parseXml } from '../utils.mjs'
+import { forEach, isSrWritable, parseXml } from '../utils.mjs'
 
 // ===================================================================
 
@@ -277,6 +277,50 @@ createNfs.resolve = {
   host: ['host', 'host', 'administrate'],
 }
 
+export async function createSmb({ host, nameLabel, nameDescription, server, user, password, srUuid }) {
+  const xapi = this.getXapi(host)
+
+  const deviceConfig = {
+    server,
+    username: user,
+    password,
+  }
+
+  if (srUuid !== undefined) {
+    return xapi.reattachSr({
+      uuid: srUuid,
+      nameLabel,
+      nameDescription,
+      type: 'smb',
+      deviceConfig,
+    })
+  }
+
+  const srRef = await xapi.SR_create({
+    device_config: deviceConfig,
+    host: host._xapiRef,
+    name_description: nameDescription,
+    name_label: nameLabel,
+    shared: true,
+    type: 'smb',
+  })
+
+  return xapi.getField('SR', srRef, 'uuid')
+}
+
+createSmb.params = {
+  host: { type: 'string' },
+  nameLabel: { type: 'string' },
+  nameDescription: { type: 'string', minLength: 0, default: '' },
+  server: { type: 'string' },
+  srUuid: { type: 'string', optional: true },
+  user: { type: 'string', optional: true },
+  password: { type: 'string', optional: true },
+}
+
+createSmb.resolve = {
+  host: ['host', 'host', 'administrate'],
+}
 // -------------------------------------------------------------------
 // HBA SR
 
@@ -540,6 +584,7 @@ export async function probeHba({ host }) {
     hbaDevices.push({
       hba: hbaDevice.hba.trim(),
       id: hbaDevice.id.trim(),
+      lun: +hbaDevice.lun.trim(),
       path: hbaDevice.path.trim(),
       scsiId: hbaDevice.SCSIid.trim(),
       serial: hbaDevice.serial.trim(),
@@ -878,16 +923,24 @@ probeNfsExists.resolve = {
 
 // -------------------------------------------------------------------
 
-export const getAllUnhealthyVdiChainsLength = debounceWithKey(function getAllUnhealthyVdiChainsLength() {
-  const unhealthyVdiChainsLengthBySr = {}
-  filter(this.objects.all, obj => obj.type === 'SR' && obj.content_type !== 'iso' && obj.size > 0).forEach(sr => {
-    const unhealthyVdiChainsLengthByVdi = this.getXapi(sr).getVdiChainsInfo(sr)
-    if (!isEmpty(unhealthyVdiChainsLengthByVdi)) {
-      unhealthyVdiChainsLengthBySr[sr.uuid] = unhealthyVdiChainsLengthByVdi
-    }
-  })
-  return unhealthyVdiChainsLengthBySr
-}, 60e3)
+export const getAllUnhealthyVdiChainsLength = throttle(
+  function getAllUnhealthyVdiChainsLength() {
+    const unhealthyVdiChainsLengthBySr = {}
+    filter(this.objects.all, obj => obj.type === 'SR' && isSrWritable(obj)).forEach(sr => {
+      const unhealthyVdiChainsLengthByVdi = this.getXapi(sr).getVdiChainsInfo(sr)
+      if (!isEmpty(unhealthyVdiChainsLengthByVdi)) {
+        unhealthyVdiChainsLengthBySr[sr.uuid] = unhealthyVdiChainsLengthByVdi
+      }
+    })
+    return unhealthyVdiChainsLengthBySr
+  },
+  60e3,
+  { leading: true, trailing: false }
+)
+
+// remove lodash's method which will be refused by XO's addApiMethod()
+delete getAllUnhealthyVdiChainsLength.cancel
+delete getAllUnhealthyVdiChainsLength.flush
 
 getAllUnhealthyVdiChainsLength.permission = 'admin'
 

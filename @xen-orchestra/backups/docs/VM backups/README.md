@@ -59,13 +59,13 @@ In case any incoherence is detected, the file is deleted so it will be fully gen
 
 ## Attributes
 
-### Of created snapshots
+### Of created snapshots (VMs and associated VDIs)
 
 - `other_config`:
   - `xo:backup:deltaChainLength` = n (number of delta copies/replicated since a full)
   - `xo:backup:exported` = 'true' (added at the end of the backup)
 
-### Of created VMs and snapshots
+### Of created VMs , their associated VDIs and snapshots 
 
 - `other_config`:
   - `xo:backup:datetime`: format is UTC %Y%m%dT%H:%M:%SZ
@@ -75,7 +75,7 @@ In case any incoherence is detected, the file is deleted so it will be fully gen
   - `xo:backup:schedule` = schedule.id
   - `xo:backup:vm` = vm.uuid
 
-### Of created VMs
+### Of created VMs and their associated VDIs
 
 - `name_label`: `${original name} - ${job name} - (${safeDateFormat(backup timestamp)})`
 - tag:
@@ -221,7 +221,7 @@ For multiple objects:
 
 ### Settings
 
-Settings are described in [`@xen-orchestra/backups/Backup.js](https://github.com/vatesfr/xen-orchestra/blob/master/%40xen-orchestra/backups/Backup.js).
+Settings are described in [`@xen-orchestra/backups/\_runners/VmsXapi.mjs``](https://github.com/vatesfr/xen-orchestra/blob/master/%40xen-orchestra/backups/_runners/VmsXapi.mjs).
 
 ## Writer API
 
@@ -230,6 +230,7 @@ Settings are described in [`@xen-orchestra/backups/Backup.js](https://github.com
     - `checkBaseVdis(baseUuidToSrcVdi, baseVm)`
     - `prepare({ isFull })`
     - `transfer({ timestamp, deltaExport, sizeContainers })`
+    - `updateUuidAndChain({ isVhdDifferencing, vdis })`
     - `cleanup()`
     - `healthCheck()` // is not executed if no health check sr or tag doesn't match
   - **Full**
