@@ -15,7 +15,7 @@ html
       if error
         p.text-danger #{error}
       if otp
-        form(action = 'signin-otp' method = 'post')
+        form(action = 'signin-otp' method = 'post' style = 'margin:auto;')
           fieldset
             .input-group.mb-1
               span.input-group-addon
@@ -34,7 +34,7 @@ html
                 |  Sign in
       else
         if Object.keys(strategies).length !== 0
-          form(action = 'signin/dispatch' method = 'post')
+          form(action = 'signin/dispatch' method = 'post' style = 'margin:auto;')
             .checkbox
               label
                 input(
@@ -46,7 +46,7 @@ html
             each label, id in strategies
               div: button(type = 'submit' name = 'provider' value = id).btn.btn-block.btn-primary.mb-1 Sign in with #{label}
           hr
-        form(action = 'signin/local' method = 'post')
+        form(action = 'signin/local' method = 'post' style = 'margin:auto;')
           fieldset
             .input-group.mb-1
               span.input-group-addon
