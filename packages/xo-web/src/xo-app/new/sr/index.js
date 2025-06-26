@@ -1,11 +1,12 @@
+/* eslint-disable react/no-string-refs */
 import _, { messages } from 'intl'
 import ActionButton from 'action-button'
 import Component from 'base-component'
 import Icon from 'icon'
-import ignoreErrors from 'promise-toolbox/ignoreErrors'
 import includes from 'lodash/includes'
 import info, { error } from 'notification'
 import isEmpty from 'lodash/isEmpty'
+import { isIpV6 } from 'ip-utils'
 import map from 'lodash/map'
 import Page from '../../page'
 import PropTypes from 'prop-types'
@@ -281,22 +282,7 @@ export default class New extends Component {
           srUuid
         ),
       smb: () => createSrSmb(host.id, name.value, description.value, server.value, username.value, password.value),
-      hba: async () => {
-        if (srUuid === undefined) {
-          const previous = await probeSrHbaExists(host.id, scsiId)
-          if (previous && previous.length > 0) {
-            try {
-              await confirm({
-                title: _('existingLunModalTitle'),
-                body: <p>{_('existingLunModalText')}</p>,
-              })
-            } catch (error) {
-              return
-            }
-          }
-        }
-        return createSrHba(host.id, name.value, description.value, scsiId, srUuid)
-      },
+      hba: () => createSrHba(host.id, name.value, description.value, scsiId, srUuid),
       iscsi: async () => {
         if (srUuid === undefined) {
           const previous = await probeSrIscsiExists(
@@ -341,7 +327,7 @@ export default class New extends Component {
           host.id,
           name.value,
           description.value,
-          `${server.value}:${path}`,
+          isIpV6(server.value) ? `[${server.value}]:${path}` : `${server.value}:${path}`,
           'nfs',
           username && username.value,
           password && password.value,
@@ -372,7 +358,7 @@ export default class New extends Component {
         })
       }
       const existingSrsLength = this.state.existingSrs?.length ?? 0
-      // `existingsSrs` is defined if the SR type is `NFS` or `ISCSI` and if at least one SR is detected
+      // `existingSrs` is defined if the SR type is `NFS` or `ISCSI` and if at least one SR is detected
       // Ignore NFS type because it is not supposed to erase data
       if (type !== 'nfs' && existingSrsLength !== 0 && srUuid === undefined) {
         await confirm({
@@ -415,6 +401,7 @@ export default class New extends Component {
 
   _handleSrHbaSelection = async scsiId => {
     this.setState({
+      existingSrs: await probeSrHbaExists(this.state.host.id, scsiId),
       scsiId,
       usage: true,
     })
@@ -542,19 +529,22 @@ export default class New extends Component {
   _probe = async (host, type) => {
     const probeMethodFactories = {
       hba: async hostId => ({
-        hbaDevices: await probeSrHba(hostId)::ignoreErrors(),
+        hbaDevices: await probeSrHba(hostId),
       }),
       zfs: async hostId => ({
-        zfsPools: await probeZfs(hostId)::ignoreErrors(),
+        zfsPools: await probeZfs(hostId),
       }),
     }
     if (probeMethodFactories[type] !== undefined && host != null) {
       this.setState(({ loading }) => ({ loading: loading + 1 }))
-      const probeResult = await probeMethodFactories[type](host.id)
-      this.setState(({ loading }) => ({
-        loading: loading - 1,
-        ...probeResult,
-      }))
+      try {
+        const probeResult = await probeMethodFactories[type](host.id)
+        this.setState(probeResult)
+      } catch (err) {
+        error('Device detection failed', err.message || String(err))
+      } finally {
+        this.setState(({ loading }) => ({ loading: loading - 1 }))
+      }
     }
   }
 
@@ -959,3 +949,4 @@ export default class New extends Component {
     )
   }
 }
+/* eslint-enable react/no-string-refs */

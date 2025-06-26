@@ -2,19 +2,19 @@
   <div class="pool-dashboard-status-item">
     <ProgressCircle :max-value="total" :value="active" />
     <div class="content">
-      <h6 class="typo h6-semi-bold">{{ label }}</h6>
-      <div class="status-line typo p1-regular">
+      <h6 class="typo-h6">{{ label }}</h6>
+      <div class="status-line typo-body-regular">
         <div class="bullet" />
         <div class="label">{{ activeLabel }}</div>
         <div class="count">{{ active }}</div>
       </div>
-      <div class="status-line typo p1-regular">
+      <div class="status-line typo-body-regular">
         <div class="bullet inactive" />
         <div class="label">{{ inactiveLabel }}</div>
         <div class="count">{{ inactive }}</div>
       </div>
-      <div class="total typo c2-semi-bold">
-        {{ $t('total') }} <span>{{ total }}</span>
+      <div class="total typo-caption-small">
+        {{ t('total') }} <span>{{ total }}</span>
       </div>
     </div>
   </div>
@@ -23,6 +23,7 @@
 <script lang="ts" setup>
 import ProgressCircle from '@/components/ProgressCircle.vue'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 const props = defineProps<{
   label: string
@@ -31,6 +32,8 @@ const props = defineProps<{
   activeLabel: string
   inactiveLabel: string
 }>()
+
+const { t } = useI18n()
 
 const inactive = computed(() => props.total - props.active)
 </script>
@@ -53,10 +56,10 @@ const inactive = computed(() => props.total - props.active)
   width: 1.3rem;
   height: 1.3rem;
   border-radius: 0.65rem;
-  background-color: var(--color-green-base);
+  background-color: var(--color-success-item-base);
 
   &.inactive {
-    background-color: var(--color-grey-500);
+    background-color: var(--color-neutral-background-disabled);
   }
 }
 

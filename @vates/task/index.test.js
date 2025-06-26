@@ -1,7 +1,7 @@
 'use strict'
 
 const assert = require('node:assert').strict
-const { describe, it } = require('test')
+const { describe, it } = require('node:test')
 
 const { makeOnProgress } = require('./combineEvents.js')
 const { Task } = require('./index.js')
@@ -29,7 +29,7 @@ function createTask(opts) {
 }
 
 describe('Task', function () {
-  describe('contructor', function () {
+  describe('constructor', function () {
     it('data properties are passed to the start event', async function () {
       const properties = { foo: 0, bar: 1 }
       const task = createTask({ properties })
@@ -145,6 +145,43 @@ describe('Task', function () {
     })
   })
 
+  describe('#failure()', function () {
+    const error = new Error()
+
+    it('throws if the task has not started yet', function () {
+      const task = createTask()
+
+      assert.throws(() => task.failure(error), { message: /^task has not started yet\b/ })
+    })
+
+    it('throws if the task is running', function () {
+      const task = createTask()
+      task.runInside(noop)
+
+      assert.throws(() => task.failure(error), { code: 'ERR_ASSERTION' })
+    })
+
+    it('throws if the task has already finished', function () {
+      const task = createTask()
+      task.start()
+      task.success()
+
+      assert.throws(() => task.failure(error), { code: 'ERR_ASSERTION' })
+    })
+
+    it('finishes the task and mark it as failed', function () {
+      const task = createTask()
+      task.start()
+      task.failure(error)
+
+      assertEvent(task, {
+        status: 'failure',
+        result: error,
+        type: 'end',
+      })
+    })
+  })
+
   describe('.info()', function () {
     it('does nothing when run outside a task', function () {
       Task.info('foo')
@@ -225,10 +262,10 @@ describe('Task', function () {
 
     it('throws when the task is not started', function () {
       const task = createTask()
-      assert.throws(() => task.set(name, value), { message: 'task has not started yet' })
+      assert.throws(() => task.set(name, value), { message: /^task has not started yet\b/ })
     })
 
-    it(`emits an property message`, async function () {
+    it(`emits a property message`, async function () {
       const task = createTask()
       await task.run(async () => {
         await Task.run(() => {
@@ -244,12 +281,65 @@ describe('Task', function () {
     })
   })
 
+  describe('#start', function () {
+    it('starts the task', function () {
+      const task = createTask()
+      task.start()
+
+      assertEvent(task, { type: 'start' })
+    })
+
+    it('throws when the task has already started', function () {
+      const task = createTask()
+      task.start()
+
+      assert.throws(() => task.start(), { message: 'task has already started' })
+    })
+  })
+
+  describe('#success()', function () {
+    const result = {}
+
+    it('throws if the task has not started yet', function () {
+      const task = createTask()
+
+      assert.throws(() => task.success(result), { message: /^task has not started yet\b/ })
+    })
+
+    it('throws if the task is running', function () {
+      const task = createTask()
+      task.runInside(noop)
+
+      assert.throws(() => task.success(result), { code: 'ERR_ASSERTION' })
+    })
+
+    it('throws if the task has already finished', function () {
+      const task = createTask()
+      task.start()
+      task.success()
+
+      assert.throws(() => task.success(result), { code: 'ERR_ASSERTION' })
+    })
+
+    it('finishes the task and mark it as successful', function () {
+      const task = createTask()
+      task.start()
+      task.success(result)
+
+      assertEvent(task, {
+        status: 'success',
+        result,
+        type: 'end',
+      })
+    })
+  })
+
   describe('.warning()', function () {
     it('does nothing when run outside a task', function () {
       Task.warning('foo')
     })
 
-    it('emits an warning message when run inside a task', async function () {
+    it('emits a warning message when run inside a task', async function () {
       const task = createTask()
       await task.run(() => {
         Task.warning('foo')
@@ -266,7 +356,7 @@ describe('Task', function () {
     describe(`#${type}()`, function () {
       it('throws when the task is not started', function () {
         const task = createTask()
-        assert.throws(() => task[type]('foo'), { message: 'task has not started yet' })
+        assert.throws(() => task[type]('foo'), { message: /^task has not started yet\b/ })
       })
 
       it(`emits an ${type} message`, async function () {

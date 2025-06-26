@@ -176,7 +176,7 @@ export default class Menu extends Component {
         this.setState(state => ({
           missingPatches: {
             ...state.missingPatches,
-            [host.id]: patches.length > 0,
+            [host.id]: patches != null && patches.length > 0,
           },
         }))
       })
@@ -306,6 +306,11 @@ export default class Menu extends Component {
             to: '/backup/overview',
             icon: 'menu-backup-overview',
             label: 'backupOverviewPage',
+          },
+          {
+            to: '/backup/sequences',
+            icon: 'menu-backup-sequence',
+            label: 'sequences',
           },
           {
             to: '/backup/new',

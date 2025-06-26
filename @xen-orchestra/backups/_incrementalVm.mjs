@@ -3,13 +3,17 @@ import ignoreErrors from 'promise-toolbox/ignoreErrors'
 import { asyncMap } from '@xen-orchestra/async-map'
 import { CancelToken } from 'promise-toolbox'
 import { compareVersions } from 'compare-versions'
-import { createVhdStreamWithLength } from 'vhd-lib'
 import { defer } from 'golike-defer'
 
 import { cancelableMap } from './_cancelableMap.mjs'
 import { Task } from './Task.mjs'
 import pick from 'lodash/pick.js'
 import { BASE_DELTA_VDI, COPY_OF, VM_UUID } from './_otherConfig.mjs'
+
+import { XapiDiskSource } from '@xen-orchestra/xapi'
+import { toVhdStream } from 'vhd-lib/disk-consumer/index.mjs'
+import { toQcow2Stream } from '@xen-orchestra/qcow2'
+import { VHD_MAX_SIZE } from '@xen-orchestra/xapi/disks/Xapi.mjs'
 
 const ensureArray = value => (value === undefined ? [] : Array.isArray(value) ? value : [value])
 
@@ -20,7 +24,7 @@ export async function exportIncrementalVm(
 ) {
   // refs of VM's VDIs → base's VDIs.
 
-  const streams = {}
+  const disks = {}
   const vdis = {}
   const vbds = {}
   await cancelableMap(cancelToken, vm.$VBDs, async (cancelToken, vbd) => {
@@ -53,14 +57,14 @@ export async function exportIncrementalVm(
       $snapshot_of$uuid: vdi.$snapshot_of?.uuid,
       $SR$uuid: vdi.$SR.uuid,
     }
-
-    streams[`${vdiRef}.vhd`] = await vdi.$exportContent({
+    disks[vdiRef] = new XapiDiskSource({
+      vdiRef,
+      xapi: vm.$xapi,
       baseRef: baseVdi?.$ref,
-      cancelToken,
-      format: 'vhd',
       nbdConcurrency,
       preferNbd,
     })
+    await disks[vdiRef].init()
   })
 
   const suspendVdi = vm.$suspend_VDI
@@ -70,10 +74,13 @@ export async function exportIncrementalVm(
       ...suspendVdi,
       $SR$uuid: suspendVdi.$SR.uuid,
     }
-    streams[`${vdiRef}.vhd`] = await suspendVdi.$exportContent({
-      cancelToken,
-      format: 'vhd',
+    disks[vdiRef] = new XapiDiskSource({
+      vdiRef: suspendVdi.$ref,
+      xapi: vm.$xapi,
+      nbdConcurrency,
+      preferNbd,
     })
+    await disks[vdiRef].init()
   }
 
   const vifs = {}
@@ -87,23 +94,29 @@ export async function exportIncrementalVm(
     }
   })
 
-  return Object.defineProperty(
-    {
-      version: '1.1.0',
-      vbds,
-      vdis,
-      vifs,
-      vm: {
-        ...vm,
-      },
-    },
-    'streams',
-    {
-      configurable: true,
-      value: streams,
-      writable: true,
-    }
+  const vtpms = await Promise.all(
+    vm.$VTPMs.map(async vtpm => {
+      let content
+      try {
+        content = await vm.$xapi.call('VTPM.get_contents', vtpm.$ref)
+      } catch (err) {
+        console.error(err)
+      }
+      return content
+    })
   )
+
+  return {
+    version: '1.1.0',
+    vbds,
+    vdis,
+    vifs,
+    vm: {
+      ...vm,
+    },
+    vtpms,
+    disks,
+  }
 }
 
 export const importIncrementalVm = defer(async function importIncrementalVm(
@@ -169,8 +182,8 @@ export const importIncrementalVm = defer(async function importIncrementalVm(
     const vdi = vdiRecords[vdiRef]
     let newVdi
 
-    if (vdi.baseVdi !== undefined) {
-      newVdi = await xapi.getRecord('VDI', await vdi.baseVdi.$clone())
+    if (vdi.baseVdi?.$ref !== undefined) {
+      newVdi = await xapi.getRecord('VDI', await xapi.VDI_clone(vdi.baseVdi.$ref))
       $defer.onFailure(() => newVdi.$destroy())
 
       await newVdi.update_other_config(COPY_OF, vdi.uuid)
@@ -214,24 +227,28 @@ export const importIncrementalVm = defer(async function importIncrementalVm(
     }
   })
 
-  const { streams } = incrementalVm
-
+  const { disks } = incrementalVm
   await Promise.all([
     // Import VDI contents.
     cancelableMap(cancelToken, Object.entries(newVdis), async (cancelToken, [id, vdi]) => {
-      for (let stream of ensureArray(streams[`${id}.vhd`])) {
-        if (stream === null) {
-          // we restore a backup and reuse completly a local snapshot
+      for (const disk of ensureArray(disks[id])) {
+        if (disk === null) {
+          // we restore a backup and reuse completely a local snapshot
           continue
         }
-        if (typeof stream === 'function') {
-          stream = await stream()
-        }
-        if (stream.length === undefined) {
-          stream = await createVhdStreamWithLength(stream)
-        }
         await xapi.setField('VDI', vdi.$ref, 'name_label', `[Importing] ${vdiRecords[id].name_label}`)
-        await vdi.$importContent(stream, { cancelToken, format: 'vhd' })
+
+        let stream, format
+        if (vdi.virtual_size > VHD_MAX_SIZE) {
+          stream = await toQcow2Stream(disk)
+          format = 'qcow2'
+        } else {
+          stream = await toVhdStream(disk)
+          format = 'vhd'
+        }
+
+        await vdi.$importContent(stream, { cancelToken, format })
+
         await xapi.setField('VDI', vdi.$ref, 'name_label', vdiRecords[id].name_label)
       }
     }),
@@ -267,6 +284,12 @@ export const importIncrementalVm = defer(async function importIncrementalVm(
       }
     }),
   ])
+  // recreate VTPMs
+  await Promise.all(
+    (incrementalVm.vtpms ?? []).map(async contents => {
+      await xapi.VTPM_create({ VM: vmRef, contents })
+    })
+  )
 
   await Promise.all([
     incrementalVm.vm.ha_always_run && xapi.setField('VM', vmRef, 'ha_always_run', true),

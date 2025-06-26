@@ -1,5 +1,6 @@
 import assert from 'assert'
 import pRetry from 'promise-toolbox/retry'
+import { parseDuration } from '@vates/parse-duration'
 import { utcFormat, utcParse } from 'd3-time-format'
 import { Xapi as Base } from 'xen-api'
 import { createLogger } from '@xen-orchestra/log'
@@ -9,10 +10,13 @@ import * as Mixins from './_Mixins.mjs'
 const { warn } = createLogger('xo:xapi')
 
 export { default as isDefaultTemplate } from './isDefaultTemplate.mjs'
+export { XapiDiskSource } from './disks/Xapi.mjs'
 
 // VDI formats. (Raw is not available for delta vdi.)
 export const VDI_FORMAT_RAW = 'raw'
 export const VDI_FORMAT_VHD = 'vhd'
+export const VDI_FORMAT_QCOW2 = 'qcow2'
+export const SUPPORTED_VDI_FORMAT = [VDI_FORMAT_RAW, VDI_FORMAT_VHD, VDI_FORMAT_QCOW2]
 
 // Format a date (pseudo ISO 8601) from one XenServer get by
 // xapi.call('host.get_servertime', host.$ref) for example
@@ -76,7 +80,7 @@ const getPoolInfo = ({ pool } = {}) =>
     name_label: pool.name_label,
   }
 
-function onRetry(error) {
+function logErrorBeforeRetry(error) {
   try {
     warn('retry', {
       attemptNumber: this.attemptNumber,
@@ -87,6 +91,17 @@ function onRetry(error) {
       pool: getPoolInfo(this.this),
     })
   } catch (error) {}
+}
+function disconnectBeforeRetry() {
+  logErrorBeforeRetry.apply(this, arguments)
+  const { arguments: args, this: self } = this
+  const vdiRef = args[0]
+  return self.VDI_disconnectFromControlDomain(vdiRef).catch(error =>
+    warn('VDI_disconnectFromControlDomain failed while retrying', {
+      arguments,
+      error,
+    })
+  )
 }
 
 const logWatcherError = error => warn('error in watcher', { error })
@@ -140,12 +155,13 @@ export class Xapi extends Base {
     syncHookSecret,
     syncHookTimeout,
     vdiDestroyRetryWhenInUse = { delay: 5e3, tries: 10 },
+    vdiDelayBeforeRemovingCloudConfigDrive = '5 min',
     ...opts
   }) {
     super(opts)
     this._callRetryWhenTooManyPendingTasks = {
       ...callRetryWhenTooManyPendingTasks,
-      onRetry,
+      onRetry: logErrorBeforeRetry,
       when: { code: 'TOO_MANY_PENDING_TASKS' },
     }
     this._maxUncoalescedVdis = maxUncoalescedVdis
@@ -155,9 +171,10 @@ export class Xapi extends Base {
     this._syncHookTimeout = syncHookTimeout
     this._vdiDestroyRetryWhenInUse = {
       ...vdiDestroyRetryWhenInUse,
-      onRetry,
+      onRetry: disconnectBeforeRetry,
       when: { code: 'VDI_IN_USE' },
     }
+    this._vdiDelayBeforeRemovingCloudConfigDrive = parseDuration(vdiDelayBeforeRemovingCloudConfigDrive)
 
     const genericWatchers = (this._genericWatchers = new Set())
     const objectWatchers = (this._objectWatchers = { __proto__: null })
@@ -231,7 +248,14 @@ export class Xapi extends Base {
 
   // wait for an object to be in a specified state
 
-  waitObjectState(refOrUuid, predicate, { timeout } = {}) {
+  waitObjectState(
+    refOrUuid,
+    predicate,
+    {
+      timeout,
+      timeoutMessage = refOrUuid => `waitObjectState: timeout reached before ${refOrUuid} in expected state`,
+    } = {}
+  ) {
     return new Promise((resolve, reject) => {
       const object = this.getObject(refOrUuid, undefined)
       if (object !== undefined && predicate(object)) {
@@ -248,7 +272,7 @@ export class Xapi extends Base {
       })
 
       if (timeout !== undefined) {
-        const error = new Error(`waitObjectState: timeout reached before ${refOrUuid} in expected state`)
+        const error = new Error(timeoutMessage(refOrUuid))
         timeoutHandle = setTimeout(() => {
           stop()
           reject(error)

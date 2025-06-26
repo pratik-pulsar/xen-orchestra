@@ -13,6 +13,10 @@ export const locales: Locales = {
     code: 'en',
     name: 'English',
   },
+  es: {
+    code: 'es',
+    name: 'Español',
+  },
   fr: {
     code: 'fr',
     name: 'Français',
@@ -24,6 +28,30 @@ export const locales: Locales = {
   fa: {
     code: 'fa',
     name: 'Persian',
+  },
+  cs: {
+    code: 'cs',
+    name: 'čeština',
+  },
+  sv: {
+    code: 'sv',
+    name: 'Svenska',
+  },
+  it: {
+    code: 'it',
+    name: 'Italiano',
+  },
+  ru: {
+    code: 'ru',
+    name: 'Русский',
+  },
+  uk: {
+    code: 'uk',
+    name: 'Українська',
+  },
+  nl: {
+    code: 'nl',
+    name: 'Nederlands',
   },
 }
 
@@ -42,6 +70,48 @@ export default createI18n({
   },
   datetimeFormats: {
     en: {
+      date_short: {
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+      },
+      date_medium: {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      },
+      date_long: {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      },
+      datetime_short: {
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      },
+      datetime_medium: {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      },
+      datetime_long: {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      },
+      time: {
+        hour: '2-digit',
+        minute: '2-digit',
+      },
+    },
+    es: {
       date_short: {
         year: 'numeric',
         month: 'numeric',
@@ -212,6 +282,13 @@ export default createI18n({
   },
   numberFormats: {
     en: {
+      percent: {
+        style: 'percent',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+      },
+    },
+    es: {
       percent: {
         style: 'percent',
         minimumFractionDigits: 0,

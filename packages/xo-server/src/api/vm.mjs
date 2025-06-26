@@ -64,27 +64,7 @@ const startVmAndDestroyCloudConfigVdi = async (xapi, vm, vdiUuid, params) => {
     await xapi.startVm(vm.uuid)
 
     if (params.destroyCloudConfigVdiAfterBoot && vdiUuid !== undefined) {
-      // wait for the 'Running' event to be really stored in local xapi object cache
-      await xapi.waitObjectState(vm.uuid, vm => vm.power_state === 'Running', { timeout: timeLimit - Date.now() })
-
-      // wait for the guest tool version to be defined
-      await xapi
-        .waitObjectState(
-          xapi.getObjectByRef(vm.$ref).guest_metrics,
-          gm => gm?.PV_drivers_version?.major !== undefined,
-          { timeout: timeLimit - Date.now() }
-        )
-        .catch(error => {
-          log.warn('startVmAndDestroyCloudConfigVdi: failed to wait guest metrics, consider VM as started', {
-            error,
-            vm: { uuid: vm.uuid },
-          })
-        })
-
-      // destroy cloud config drive
-      const vdi = xapi.getObjectByUuid(vdiUuid)
-      await vdi.$VBDs[0].$unplug()
-      await vdi.$destroy()
+      await xapi.VDI_destroyCloudInitConfig(xapi.getObject(vdiUuid).$ref, { timeLimit })
     }
   } catch (error) {
     log.warn('startVmAndDestroyCloudConfigVdi', { error, vdi: { uuid: vdiUuid }, vm: { uuid: vm.uuid } })
@@ -135,7 +115,7 @@ export const create = defer(async function ($defer, params) {
         ...vdi,
         device: ++highestDevice,
         size,
-        SR: sr._xapiId,
+        sr: sr._xapiId,
         type: vdi.type,
       }
     })
@@ -200,7 +180,7 @@ export const create = defer(async function ($defer, params) {
     params.tags = paramsTags !== undefined ? paramsTags.concat(resourceSetTags) : resourceSetTags
   }
 
-  const xapiVm = await xapi.createVm(template._xapiId, params, checkLimits, user.id)
+  const xapiVm = await xapi.createVm(template._xapiId, params, checkLimits, user.id, { destroyAllVifs: true })
   $defer.onFailure(() => xapi.VM_destroy(xapiVm.$ref, { deleteDisks: true, force: true }))
 
   const vm = xapi.xo.addObject(xapiVm)
@@ -208,25 +188,9 @@ export const create = defer(async function ($defer, params) {
   // create cloud config drive
   let cloudConfigVdiUuid
   if (params.cloudConfig != null) {
-    // Find the SR of the first VDI.
-    let srId
-    forEach(vm.$VBDs, vbdId => {
-      const vbd = this.getObject(vbdId)
-      const vdiId = vbd.VDI
-      if (!vbd.is_cd_drive && vdiId !== undefined) {
-        srId = this.getObject(vdiId).$SR
-        return false
-      }
+    cloudConfigVdiUuid = await xapi.VM_createCloudInitConfig(vm._xapiRef, params.cloudConfig, {
+      networkConfig: params.networkConfig,
     })
-
-    try {
-      cloudConfigVdiUuid = params.coreOs
-        ? await xapi.createCoreOsCloudInitConfigDrive(vm.id, srId, params.cloudConfig)
-        : await xapi.createCloudInitConfigDrive(vm.id, srId, params.cloudConfig, params.networkConfig)
-    } catch (error) {
-      log.warn('vm.create', { vmId: vm.id, srId, error })
-      throw error
-    }
   }
 
   if (resourceSet) {
@@ -238,6 +202,16 @@ export const create = defer(async function ($defer, params) {
         : this.addAcl(user.id, vm.id, 'admin'),
       xapi.xo.setData(xapiVm.$id, 'resourceSet', resourceSet),
     ])
+  }
+
+  const acls = extract(params, 'acls')
+  if (acls !== undefined) {
+    await Promise.all(
+      acls.map(async ({ subject, action }) => {
+        await this.addAcl(subject, vm.id, action)
+        $defer.onFailure(() => this.removeAcl(subject, vm.id, action))
+      })
+    )
   }
 
   for (const vif of xapiVm.$VIFs) {
@@ -258,6 +232,18 @@ export const create = defer(async function ($defer, params) {
 })
 
 create.params = {
+  acls: {
+    type: 'array',
+    optional: true,
+    items: {
+      type: 'object',
+      properties: {
+        subject: { type: 'string' },
+        action: { type: 'string' },
+      },
+    },
+  },
+
   affinityHost: { type: 'string', optional: true },
 
   bootAfterCreate: {
@@ -786,6 +772,8 @@ set.params = {
 
   expNestedHvm: { type: 'boolean', optional: true },
 
+  nestedVirt: { type: 'boolean', optional: true },
+
   // Move the vm In to/Out of Self Service
   resourceSet: { type: ['string', 'null'], optional: true },
 
@@ -840,7 +828,7 @@ export const setAndRestart = defer(async function ($defer, params) {
   const vm = params.VM
   const force = extract(params, 'force')
 
-  await stop.bind(this)({ vm, force })
+  await stop.bind(this)({ vm, force, forceShutdownDelay: 0 })
 
   $defer(start.bind(this), { vm, force })
 
@@ -1544,7 +1532,7 @@ export async function importMultipleFromEsxi({
       return result
     } catch (error) {
       // if stopOnError is true :
-      //   error is the original error , `suceeded` property {[esxi vm id]: xen vm id} contains only the VMs migrated before the error.
+      //   error is the original error , `succeeded` property {[esxi vm id]: xen vm id} contains only the VMs migrated before the error.
       //   VMs started before the error and finished migration after won't be in
       // else
       //    error is an AggregatedError with an `errors` property containing all the errors
@@ -1593,7 +1581,14 @@ importMultipleFromEsxi.params = {
 
 // FIXME: if position is used, all other disks after this position
 // should be shifted.
-export async function attachDisk({ vm, vdi, position, mode, bootable }) {
+export const attachDisk = defer(async function ($defer, { vm, vdi, position, mode, bootable }) {
+  const { resourceSet } = vm
+  if (resourceSet != null) {
+    await this.checkResourceSetConstraints(resourceSet, this.apiContext.user.id, [vdi.$SR])
+    await this.allocateLimitsInResourceSet({ disk: vdi.size }, resourceSet)
+    $defer.onFailure(() => this.releaseLimitsInResourceSet({ disk: vdi.size }, resourceSet))
+  }
+
   await this.getXapi(vm).VBD_create({
     bootable,
     mode,
@@ -1601,7 +1596,7 @@ export async function attachDisk({ vm, vdi, position, mode, bootable }) {
     VDI: vdi._xapiRef,
     VM: vm._xapiRef,
   })
-}
+})
 
 attachDisk.params = {
   bootable: {
@@ -1870,5 +1865,31 @@ coalesceLeaf.params = {
   id: { type: 'string' },
 }
 coalesceLeaf.resolve = {
+  vm: ['id', 'VM', 'administrate'],
+}
+
+export async function addDataSource({ vm, dataSource }) {
+  await this.getXapi(vm).call('VM.record_data_source', vm._xapiRef, dataSource)
+}
+
+addDataSource.params = {
+  id: { type: 'string' },
+  dataSource: { type: 'string' },
+}
+
+addDataSource.resolve = {
+  vm: ['id', 'VM', 'administrate'],
+}
+
+export async function removeDataSource({ vm, dataSource }) {
+  await this.getXapi(vm).call('VM.forget_data_source_archives', vm._xapiRef, dataSource)
+}
+
+removeDataSource.params = {
+  id: { type: 'string' },
+  dataSource: { type: 'string' },
+}
+
+removeDataSource.resolve = {
   vm: ['id', 'VM', 'administrate'],
 }

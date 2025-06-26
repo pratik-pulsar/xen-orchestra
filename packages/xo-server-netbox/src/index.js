@@ -16,7 +16,7 @@ import slugify from './slugify'
 
 const log = createLogger('xo:netbox')
 
-const SUPPORTED_VERSION = '>=2.10 <5.0'
+const SUPPORTED_VERSION = '>=2.10 <4.4'
 const CLUSTER_TYPE = 'XCP-ng Pool'
 const TYPES_WITH_UUID = ['virtualization.cluster', 'virtualization.virtualmachine', 'virtualization.vminterface']
 const CHUNK_SIZE = 100
@@ -236,9 +236,14 @@ class Netbox {
 
   async #checkNetboxVersion() {
     await this.#fetchNetboxVersion()
+
+    if (!this.#xo.config.getOptional('netbox.checkNetboxVersion')) {
+      return
+    }
+
     if (this.#netboxVersion === undefined || !semver.satisfies(this.#netboxVersion, SUPPORTED_VERSION)) {
       throw new Error(
-        `Netbox version ${this.#netboxVersion ?? '<2.10'} not supported. Please check https://xen-orchestra.com/docs/advanced.html#netbox`
+        `Netbox version ${this.#netboxVersion ?? '<2.10'} not supported. Please check https://docs.xen-orchestra.com/advanced#supported-versions`
       )
     }
   }
@@ -455,20 +460,32 @@ class Netbox {
       const nbVm = {
         custom_fields: { uuid: xoVm.uuid },
         name: xoVm.name_label.slice(0, NAME_MAX_LENGTH).trim(),
-        comments: xoVm.name_description.slice(0, DESCRIPTION_MAX_LENGTH).trim(),
+        description: xoVm.name_description.slice(0, DESCRIPTION_MAX_LENGTH).trim(),
+        // Size limit of `comments` is not specified in Netbox doc: let's use the same limit as XO
+        comments: xoVm.other['xo:notes']?.slice(0, 2048).trim() ?? '',
         vcpus: xoVm.CPUs.number,
         disk: Math.floor(
           xoVm.$VBDs
             .map(vbdId => this.getObject(vbdId))
             .filter(vbd => !vbd.is_cd_drive)
             .map(vbd => this.getObject(vbd.VDI))
-            .reduce((total, vdi) => total + vdi.size, 0) / G
+            // Storage size unit changed from GB to MB in Netbox 4.1 (https://github.com/netbox-community/netbox/releases/tag/v4.1.0)
+            .reduce((total, vdi) => total + vdi.size, 0) / (semver.satisfies(this.#netboxVersion, '^4.1') ? M : G)
         ),
         memory: Math.floor(xoVm.memory.dynamic[1] / M),
         cluster: nbCluster.id,
         status: xoVm.power_state === 'Running' ? 'active' : 'offline',
         platform: null,
         tags: [],
+      }
+
+      // https://github.com/netbox-community/netbox/blob/develop/docs/release-notes/version-3.4.md#rest-api-changes
+      // `description` fields was introduced in Netbox v3.4.0
+      // - before that version: keep the same behaviour (description → comments)
+      // - after that version: (description → description) and (notes → comments)
+      if (this.#netboxVersion !== undefined && semver.satisfies(this.#netboxVersion, '< 3.4')) {
+        nbVm.comments = nbVm.description
+        delete nbVm.description
       }
 
       // Prior to Netbox v3.3.0: no "site" field on VMs
@@ -497,7 +514,12 @@ class Netbox {
 
       // Tags
       const nbVmTags = []
-      for (const tag of xoVm.tags) {
+      for (let tag of xoVm.tags) {
+        tag = tag.trim()
+        if (tag === '') {
+          continue
+        }
+
         const slug = slugify(tag)
         let nbTag = find(nbTags, { slug })
         if (nbTag === undefined) {

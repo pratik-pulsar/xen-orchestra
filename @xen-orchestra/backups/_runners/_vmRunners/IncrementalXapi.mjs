@@ -1,18 +1,12 @@
-import { asyncEach } from '@vates/async-each'
 import { createLogger } from '@xen-orchestra/log'
-import { pipeline } from 'node:stream'
-import isVhdDifferencingDisk from 'vhd-lib/isVhdDifferencingDisk.js'
 import keyBy from 'lodash/keyBy.js'
-import mapValues from 'lodash/mapValues.js'
-import vhdStreamValidator from 'vhd-lib/vhdStreamValidator.js'
 
 import { AbstractXapi } from './_AbstractXapi.mjs'
-import { exportIncrementalVm } from '../../_incrementalVm.mjs'
 import { forkDeltaExport } from './_forkDeltaExport.mjs'
+import { exportIncrementalVm } from '../../_incrementalVm.mjs'
 import { IncrementalRemoteWriter } from '../_writers/IncrementalRemoteWriter.mjs'
 import { IncrementalXapiWriter } from '../_writers/IncrementalXapiWriter.mjs'
 import { Task } from '../../Task.mjs'
-import { watchStreamSize } from '../../_watchStreamSize.mjs'
 import {
   DATETIME,
   DELTA_CHAIN_LENGTH,
@@ -20,9 +14,9 @@ import {
   setVmDeltaChainLength,
   markExportSuccessfull,
 } from '../../_otherConfig.mjs'
+import { SynchronizedDisk } from '@xen-orchestra/disk-transform'
 
 const { debug } = createLogger('xo:backups:IncrementalXapiVmBackup')
-const noop = Function.prototype
 
 export const IncrementalXapi = class IncrementalXapiVmBackupRunner extends AbstractXapi {
   _getWriters() {
@@ -45,42 +39,33 @@ export const IncrementalXapi = class IncrementalXapiVmBackupRunner extends Abstr
       nbdConcurrency: this._settings.nbdConcurrency,
       preferNbd: this._settings.preferNbd,
     })
-    // since NBD is network based, if one disk use nbd , all the disk use them
-    // except the suspended VDI
-    if (Object.values(deltaExport.streams).some(({ _nbd }) => _nbd)) {
+
+    const isVhdDifferencing = {}
+    let useNbd = false
+    for (const key in deltaExport.disks) {
+      const disk = deltaExport.disks[key]
+      isVhdDifferencing[key] = disk.isDifferencing()
+      deltaExport.disks[key] = new SynchronizedDisk(disk)
+      useNbd = useNbd || disk.useNbd()
+    }
+    if (useNbd) {
       Task.info('Transfer data using NBD')
     }
 
-    const isVhdDifferencing = {}
-    // since isVhdDifferencingDisk is reading and unshifting data in stream
-    // it should be done BEFORE any other stream transform
-    await asyncEach(Object.entries(deltaExport.streams), async ([key, stream]) => {
-      isVhdDifferencing[key] = await isVhdDifferencingDisk(stream)
-    })
-    const sizeContainers = mapValues(deltaExport.streams, stream => watchStreamSize(stream))
-
-    if (this._settings.validateVhdStreams) {
-      deltaExport.streams = mapValues(deltaExport.streams, stream => pipeline(stream, vhdStreamValidator, noop))
-    }
-    deltaExport.streams = mapValues(deltaExport.streams, this._throttleStream)
+    // @todo : reimplement throttle
 
     const timestamp = Date.now()
-
     await this._callWriters(
       writer =>
         writer.transfer({
-          deltaExport: forkDeltaExport(deltaExport),
+          deltaExport: forkDeltaExport(deltaExport, writer.constructor.name),
           isVhdDifferencing,
-          sizeContainers,
           timestamp,
           vm,
           vmSnapshot: exportedVm,
         }),
       'writer.transfer()'
     )
-
-    // we want to control the uuid of the vhd in the chain
-    // and ensure they are correctly chained
     await this._callWriters(
       writer =>
         writer.updateUuidAndChain({
@@ -91,23 +76,16 @@ export const IncrementalXapi = class IncrementalXapiVmBackupRunner extends Abstr
       'writer.updateUuidAndChain()'
     )
 
-    if (!isFull) {
+    if (isFull) {
+      await setVmDeltaChainLength(this._xapi, exportedVm.$ref, 0)
+    } else {
       await setVmDeltaChainLength(this._xapi, exportedVm.$ref, (this._deltaChainLength ?? 0) + 1)
-    } // on a full the delta chain will be null
+    }
 
     // not the case if offlineBackup
     if (exportedVm.is_a_snapshot) {
       await markExportSuccessfull(this._xapi, exportedVm.$ref)
     }
-
-    const size = Object.values(sizeContainers).reduce((sum, { size }) => sum + size, 0)
-    const end = Date.now()
-    const duration = end - timestamp
-    debug('transfer complete', {
-      duration,
-      speed: duration !== 0 ? (size * 1e3) / 1024 / 1024 / duration : 0,
-      size,
-    })
 
     await this._callWriters(writer => writer.cleanup(), 'writer.cleanup()')
   }

@@ -40,8 +40,8 @@ const props = defineProps<{
 }>()
 
 const config: Config = {
-  host: { context: useHostStore().subscribe({ defer: true }), routeName: 'host.dashboard' },
-  vm: { context: useVmStore().subscribe({ defer: true }), routeName: 'vm.console' },
+  host: { context: useHostStore().subscribe({ defer: true }), routeName: 'host.console' },
+  vm: { context: useVmStore().subscribe({ defer: true }), routeName: 'vm.default' },
   sr: { context: useSrStore().subscribe({ defer: true }), routeName: undefined },
   pool: { context: usePoolStore().subscribe({ defer: true }), routeName: 'pool.dashboard' },
 } satisfies Record<HandledTypes, any>
@@ -79,7 +79,7 @@ const objectRoute = computed(() => {
 
 <style lang="postcss" scoped>
 .unknown {
-  color: var(--color-grey-300);
+  color: var(--color-neutral-txt-secondary);
   font-style: italic;
 }
 </style>

@@ -121,7 +121,38 @@ export async function checkAliases(
 ) {
   const aliasFound = []
   for (const alias of aliasPaths) {
-    const target = await resolveVhdAlias(handler, alias)
+    let target
+    try {
+      target = await resolveVhdAlias(handler, alias)
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        logWarn('missing target of alias', { alias })
+        if (remove) {
+          logInfo('removing alias and non VHD target', { alias, target })
+          await handler.unlink(alias)
+        }
+        continue
+      }
+      if (err.code === 'EISDIR') {
+        logWarn('alias is a vhd directory', { alias })
+        if (remove) {
+          logInfo('removing vhd directory named as alias', { alias, target })
+          await VhdAbstract.unlink(handler, alias)
+        }
+        continue
+      }
+      logWarn('unhandled error while checking alias', { alias, err })
+      continue
+    }
+
+    if (target === '') {
+      logWarn('empty target for alias ', { alias })
+      if (remove) {
+        logInfo('removing alias and non VHD target', { alias, target })
+        await handler.unlink(alias)
+      }
+      continue
+    }
 
     if (!isVhdFile(target)) {
       logWarn('alias references non VHD target', { alias, target })
@@ -201,9 +232,9 @@ export async function cleanVm(
 
   // remove broken VHDs
   await asyncMap(vhds, async path => {
-    if(removeTmp && basename(path)[0] === '.'){
+    if (removeTmp && basename(path)[0] === '.') {
       logInfo('deleting temporary VHD', { path })
-        return VhdAbstract.unlink(handler, path)
+      return VhdAbstract.unlink(handler, path)
     }
     try {
       await Disposable.use(openVhd(handler, path, { checkSecondFooter: !interruptedVhds.has(path) }), vhd => {
@@ -481,7 +512,7 @@ export async function cleanVm(
         remove,
         mergeBlockConcurrency,
       })
-      const metadataPath = vhdsToJSons[chain[chain.length - 1]] // all the chain should have the same metada file
+      const metadataPath = vhdsToJSons[chain[chain.length - 1]] // all the chain should have the same metadata file
       metadataWithMergedVhd[metadataPath] = (metadataWithMergedVhd[metadataPath] ?? 0) + finalVhdSize
     })
   }
@@ -563,8 +594,8 @@ export async function cleanVm(
       if (mergedSize) {
         // all disks are now key disk
         metadata.isVhdDifferencing = {}
-        for (const id of Object.values(metadata.vdis ?? {})) {
-          metadata.isVhdDifferencing[`${id}.vhd`] = false
+        for (const id of Object.keys(metadata.vdis ?? {})) {
+          metadata.isVhdDifferencing[id] = false
         }
       }
       mustRegenerateCache = true

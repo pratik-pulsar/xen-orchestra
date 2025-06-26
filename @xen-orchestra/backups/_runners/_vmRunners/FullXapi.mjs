@@ -29,22 +29,24 @@ export const FullXapi = class FullXapiVmBackupRunner extends AbstractXapi {
     const { compression } = this.job
     const vm = this._vm
     const exportedVm = this._exportedVm
-    const stream = this._throttleStream(
+    // @todo put back throttle for full backup/Replication
+    const stream =
+      /* this._throttleStream( */
       (
         await this._xapi.VM_export(exportedVm.$ref, {
           compress: Boolean(compression) && (compression === 'native' ? 'gzip' : 'zstd'),
           useSnapshot: false,
         })
       ).body
-    )
+    /* ) */
 
     const vdis = await exportedVm.$getDisks()
     let maxStreamLength = 1024 * 1024 // Ovf file and tar headers are a few KB, let's stay safe
     for (const vdiRef of vdis) {
       const vdi = await this._xapi.getRecord('VDI', vdiRef)
 
-      // the size a of fully allocated vdi will be virtual_size  exaclty, it's a gross over evaluation
-      // of the real stream size in general, since a disk is never completly full
+      // the size a of fully allocated vdi will be virtual_size exactly, it's a gross over evaluation
+      // of the real stream size in general, since a disk is never completely full
       // vdi.physical_size seems to underevaluate a lot the real disk usage of a VDI, as of 2023-10-30
       maxStreamLength += vdi.virtual_size
     }

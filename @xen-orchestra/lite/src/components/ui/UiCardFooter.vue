@@ -1,5 +1,5 @@
 <template>
-  <div class="footer typo c2-semi-bold">
+  <div class="footer typo-caption-small">
     <div class="footer-card">
       <slot name="left" />
     </div>
@@ -11,7 +11,7 @@
 
 <style lang="postcss" scoped>
 .footer {
-  color: var(--color-grey-200);
+  color: var(--color-neutral-txt-secondary);
   display: flex;
   justify-content: space-between;
 }

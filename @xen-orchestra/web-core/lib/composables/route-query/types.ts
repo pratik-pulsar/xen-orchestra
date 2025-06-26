@@ -28,8 +28,9 @@ export type BooleanActions = { toggle: (value?: boolean) => void }
 
 export type Actions = SetActions<any> & MapActions<any, any> & ArrayActions<any> & BooleanActions
 
-export type GuessActions<TData> =
-  TData extends Set<infer TValue>
+export type GuessActions<TData> = TData extends string | number
+  ? EmptyObject
+  : TData extends Set<infer TValue>
     ? SetActions<TValue>
     : TData extends (infer TValue)[]
       ? ArrayActions<TValue>
@@ -39,4 +40,13 @@ export type GuessActions<TData> =
           ? MapActions<TKey, TValue>
           : EmptyObject
 
-export type RouteQuery<TData> = WritableComputedRef<TData> & GuessActions<TData>
+export type RouteQuery<TData> = WritableComputedRef<
+  TData extends Set<infer V>
+    ? ReadonlySet<V>
+    : TData extends Map<infer K, infer V>
+      ? ReadonlyMap<K, V>
+      : TData extends object
+        ? Readonly<TData>
+        : TData
+> &
+  GuessActions<TData>

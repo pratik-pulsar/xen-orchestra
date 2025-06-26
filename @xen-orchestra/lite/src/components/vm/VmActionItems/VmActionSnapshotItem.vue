@@ -1,6 +1,6 @@
 <template>
-  <MenuItem :busy="areSomeVmsSnapshoting" :disabled="isDisabled" :icon="faCamera" @click="handleSnapshot">
-    {{ $t('snapshot') }}
+  <MenuItem :busy="areSomeVmsSnapshotting" :disabled="isDisabled" :icon="faCamera" @click="handleSnapshot">
+    {{ t('snapshot') }}
   </MenuItem>
 </template>
 
@@ -13,10 +13,13 @@ import { useXenApiStore } from '@/stores/xen-api.store'
 import MenuItem from '@core/components/menu/MenuItem.vue'
 import { faCamera } from '@fortawesome/free-solid-svg-icons'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 const props = defineProps<{
   vmRefs: XenApiVm['$ref'][]
 }>()
+
+const { t } = useI18n()
 
 const { getByOpaqueRef } = useVmStore().subscribe()
 
@@ -24,9 +27,9 @@ const vms = computed(() =>
   props.vmRefs.map(vmRef => getByOpaqueRef(vmRef)).filter((vm): vm is XenApiVm => vm !== undefined)
 )
 
-const areSomeVmsSnapshoting = computed(() => vms.value.some(vm => isVmOperationPending(vm, VM_OPERATION.SNAPSHOT)))
+const areSomeVmsSnapshotting = computed(() => vms.value.some(vm => isVmOperationPending(vm, VM_OPERATION.SNAPSHOT)))
 
-const isDisabled = computed(() => vms.value.length === 0 || areSomeVmsSnapshoting.value)
+const isDisabled = computed(() => vms.value.length === 0 || areSomeVmsSnapshotting.value)
 
 const handleSnapshot = () => {
   const vmRefsToSnapshot = Object.fromEntries(

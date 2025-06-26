@@ -1,31 +1,39 @@
 <template>
   <div class="core-layout">
-    <header class="header">
+    <header v-if="uiStore.hasUi" class="header">
       <slot name="app-logo" />
       <UiButtonIcon
         v-tooltip="{
-          content: sidebarStore.isExpanded ? $t('core.sidebar.close') : $t('core.sidebar.open'),
+          content: sidebarStore.isExpanded ? t('core.sidebar.close') : t('core.sidebar.open'),
           placement: 'right',
         }"
-        :icon="sidebarStore.isExpanded ? faAngleDoubleLeft : faBars"
+        accent="brand"
+        size="medium"
+        :icon="faBars"
         class="sidebar-toggle"
+        :target-scale="1.8"
         @click="sidebarStore.toggleExpand()"
       />
       <slot name="app-header" />
     </header>
     <div class="container">
-      <Backdrop v-if="sidebarStore.isExpanded && !sidebarStore.isLocked" @click="sidebarStore.toggleExpand(false)" />
-      <LayoutSidebar class="sidebar">
-        <template #header>
-          <slot name="sidebar-header" />
-        </template>
-        <template #default>
-          <slot name="sidebar-content" />
-        </template>
-        <template #footer>
-          <slot name="sidebar-footer" />
-        </template>
-      </LayoutSidebar>
+      <template v-if="uiStore.hasUi">
+        <VtsBackdrop
+          v-if="sidebarStore.isExpanded && !sidebarStore.isLocked"
+          @click="sidebarStore.toggleExpand(false)"
+        />
+        <VtsLayoutSidebar class="sidebar">
+          <template #header>
+            <slot name="sidebar-header" />
+          </template>
+          <template #default>
+            <slot name="sidebar-content" />
+          </template>
+          <template #footer>
+            <slot name="sidebar-footer" />
+          </template>
+        </VtsLayoutSidebar>
+      </template>
       <main class="main-container">
         <slot name="content" />
       </main>
@@ -34,13 +42,18 @@
 </template>
 
 <script lang="ts" setup>
-import Backdrop from '@core/components/backdrop/Backdrop.vue'
-import UiButtonIcon from '@core/components/button/ButtonIcon.vue'
-import LayoutSidebar from '@core/components/layout/LayoutSidebar.vue'
+import VtsBackdrop from '@core/components/backdrop/VtsBackdrop.vue'
+import VtsLayoutSidebar from '@core/components/layout/VtsLayoutSidebar.vue'
+import UiButtonIcon from '@core/components/ui/button-icon/UiButtonIcon.vue'
 import { vTooltip } from '@core/directives/tooltip.directive'
 import { useSidebarStore } from '@core/stores/sidebar.store'
-import { faAngleDoubleLeft, faBars } from '@fortawesome/free-solid-svg-icons'
+import { useUiStore } from '@core/stores/ui.store'
+import { faBars } from '@fortawesome/free-solid-svg-icons'
+import { useI18n } from 'vue-i18n'
 
+const { t } = useI18n()
+
+const uiStore = useUiStore()
 const sidebarStore = useSidebarStore()
 </script>
 
@@ -61,8 +74,8 @@ const sidebarStore = useSidebarStore()
   display: flex;
   align-items: center;
   height: 5.6rem;
-  background-color: var(--background-color-secondary);
-  border-bottom: 0.1rem solid var(--color-grey-500);
+  background-color: var(--color-neutral-background-secondary);
+  border-bottom: 0.1rem solid var(--color-neutral-border);
   flex-shrink: 0;
   gap: 1.6rem;
   padding: 0 1.6rem;
@@ -77,6 +90,6 @@ const sidebarStore = useSidebarStore()
   overflow: auto;
   display: flex;
   flex-direction: column;
-  background-color: var(--background-color-secondary);
+  background-color: var(--color-neutral-background-secondary);
 }
 </style>

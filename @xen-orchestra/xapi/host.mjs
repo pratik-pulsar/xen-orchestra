@@ -8,7 +8,6 @@ import { getCurrentVmUuid } from './_XenStore.mjs'
 import {
   addIpmiSensorDataType,
   containsDigit,
-  IPMI_SENSOR_DATA_TYPE,
   IPMI_SENSOR_REGEX_BY_DATA_TYPE_BY_SUPPORTED_PRODUCT_NAME,
   isRelevantIpmiSensor,
 } from './host/_ipmi.mjs'
@@ -43,7 +42,7 @@ class Host {
   async smartReboot($defer, ref, bypassBlockedSuspend = false, bypassCurrentVmCheck = false) {
     await this.callAsync('host.disable', ref)
 
-    // host may have been re-enabled already, this is not an problem
+    // host may have been re-enabled already, this is not a problem
     $defer.onFailure(() => this.callAsync('host.enable', ref))
 
     let currentVmRef
@@ -52,13 +51,26 @@ class Host {
     } catch (error) {}
 
     const residentVmRefs = await this.getField('host', ref, 'resident_VMs')
+
+    // check the VMs with PCI passthrough
+    const vms = await asyncMap(residentVmRefs, ref => this.getRecord('VM', ref))
+    const vmsNotSuspendable = vms.filter(async vm => {
+      try {
+        await this.call('VM.assert_operation_valid', vm.$ref, 'suspend')
+        return false
+      } catch (err) {
+        return true
+      }
+    })
+    const vmsNotSuspendableRefs = new Set(vmsNotSuspendable.map(vm => vm.$ref))
+
     const vmsWithSuspendBlocked = await asyncMap(residentVmRefs, ref => this.getRecord('VM', ref)).filter(
       vm =>
         vm.$ref !== currentVmRef &&
         !vm.is_control_domain &&
         vm.power_state !== 'Halted' &&
         vm.power_state !== 'Suspended' &&
-        vm.blocked_operations.suspend !== undefined
+        (vm.blocked_operations.suspend !== undefined || vmsNotSuspendableRefs.has(vm.$ref))
     )
 
     if (!bypassBlockedSuspend && vmsWithSuspendBlocked.length > 0) {
@@ -117,7 +129,12 @@ class Host {
             }
           }
 
-          throw error
+          // fallback on suspend error
+          try {
+            await this.callAsync('VM.clean_shutdown', vmRef)
+          } catch (error) {
+            await this.callAsync('VM.hard_shutdown', vmRef)
+          }
         }
       },
       { stopOnError: false }
@@ -130,18 +147,24 @@ class Host {
 
   async getIpmiSensors(ref, { cache } = {}) {
     const productName = (await this.call(cache, 'host.get_bios_strings', ref))['system-product-name']?.toLowerCase()
+    const callIpmiPlugin = fn => this.call(cache, 'host.call_plugin', ref, 'ipmitool.py', fn, {})
 
-    if (IPMI_SENSOR_REGEX_BY_DATA_TYPE_BY_SUPPORTED_PRODUCT_NAME[productName] === undefined) {
+    if (
+      IPMI_SENSOR_REGEX_BY_DATA_TYPE_BY_SUPPORTED_PRODUCT_NAME[productName] === undefined ||
+      (await callIpmiPlugin('is_ipmi_device_available')) === 'false'
+    ) {
       return {}
     }
 
-    const callSensorPlugin = fn => this.call(cache, 'host.call_plugin', ref, '2crsi-sensors.py', fn, {})
-    // https://github.com/AtaxyaNetwork/xcp-ng-xapi-plugins/tree/ipmi-sensors?tab=readme-ov-file#ipmi-sensors-parser
-    const [stringifiedIpmiSensors, ip] = await Promise.all([callSensorPlugin('get_info'), callSensorPlugin('get_ip')])
+    const [stringifiedIpmiSensors, stringifiedIpmiLan] = await Promise.all([
+      callIpmiPlugin('get_all_sensors'),
+      callIpmiPlugin('get_ipmi_lan'),
+    ])
     const ipmiSensors = JSON.parse(stringifiedIpmiSensors)
+    const ipmiLan = JSON.parse(stringifiedIpmiLan)
 
     const ipmiSensorsByDataType = {}
-    for (const ipmiSensor of ipmiSensors) {
+    for (const ipmiSensor of [...ipmiSensors, ...ipmiLan]) {
       if (!isRelevantIpmiSensor(ipmiSensor, productName)) {
         continue
       }
@@ -150,7 +173,7 @@ class Host {
       const dataType = ipmiSensor.dataType
 
       if (ipmiSensorsByDataType[dataType] === undefined) {
-        ipmiSensorsByDataType[dataType] = containsDigit(ipmiSensor.Name) ? [] : ipmiSensor
+        ipmiSensorsByDataType[dataType] = containsDigit(ipmiSensor.name) ? [] : ipmiSensor
       }
 
       if (Array.isArray(ipmiSensorsByDataType[ipmiSensor.dataType])) {
@@ -158,9 +181,26 @@ class Host {
       }
     }
 
-    ipmiSensorsByDataType[IPMI_SENSOR_DATA_TYPE.generalInfo] = { ip }
-
     return ipmiSensorsByDataType
+  }
+
+  async getMdadmHealth(ref) {
+    try {
+      const result = await this.callAsync('host.call_plugin', ref, 'raid.py', 'check_raid_pool', {})
+      const parsedResult = JSON.parse(result)
+
+      return parsedResult
+    } catch (error) {
+      if (
+        error.code === 'XENAPI_MISSING_PLUGIN' ||
+        error.code === 'UNKNOWN_XENAPI_PLUGIN_FUNCTION' ||
+        error.code === 'HOST_OFFLINE'
+      ) {
+        return null
+      } else {
+        throw error
+      }
+    }
   }
 }
 export default Host

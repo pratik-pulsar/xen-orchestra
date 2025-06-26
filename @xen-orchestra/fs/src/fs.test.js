@@ -1,4 +1,4 @@
-import { after, afterEach, before, beforeEach, describe, it } from 'test'
+import { after, afterEach, before, beforeEach, describe, it } from 'node:test'
 import { strict as assert } from 'assert'
 
 import 'dotenv/config'
@@ -33,18 +33,22 @@ const rejectionOf = p =>
     },
     reason => reason
   )
-
+const skipFsNotInAzure = () => {
+  return !!process.env.xo_fs_azure
+}
+// TODO : add tests on encrypted remote
 const handlers = [`file://${tmpdir()}`]
 if (process.env.xo_fs_nfs) handlers.push(process.env.xo_fs_nfs)
 if (process.env.xo_fs_smb) handlers.push(process.env.xo_fs_smb)
+if (process.env.xo_fs_azure) handlers.push(process.env.xo_fs_azure)
 
 handlers.forEach(url => {
   describe(url, () => {
     let handler
 
     const testWithFileDescriptor = (path, flags, fn) => {
-      it('with path', () => fn({ file: path, flags }))
-      it('with file descriptor', async () => {
+      it('with path', { skip: skipFsNotInAzure() }, () => fn({ file: path, flags }))
+      it('with file descriptor', { skip: skipFsNotInAzure() }, async () => {
         const file = await handler.openFile(path, flags)
         try {
           await fn({ file })
@@ -83,11 +87,11 @@ handlers.forEach(url => {
         info = await handler.getInfo()
       })
 
-      it('should return an object with info', async () => {
+      it('should return an object with info', { skip: skipFsNotInAzure() }, async () => {
         assert.equal(typeof info, 'object')
       })
 
-      it('should return correct type of attribute', async () => {
+      it('should return correct type of attribute', { skip: skipFsNotInAzure() }, async () => {
         if (info.size !== undefined) {
           assert.equal(typeof info.size, 'number')
         }
@@ -97,11 +101,12 @@ handlers.forEach(url => {
       })
     })
 
-    describe('#getSize()', () => {
-      before(() => handler.outputFile('file', TEST_DATA))
+    // TODO : add test "should throw if remote is encrypted" on #getSize()
+    describe('#getSizeOnDisk()', () => {
+      beforeEach(() => handler.outputFile('file', TEST_DATA))
 
       testWithFileDescriptor('file', 'r', async () => {
-        assert.equal(await handler.getSize('file'), TEST_DATA_LEN)
+        assert.equal(await handler.getSizeOnDisk('file'), TEST_DATA_LEN)
       })
     })
 
@@ -117,7 +122,6 @@ handlers.forEach(url => {
       })
 
       it('throws ENOENT if no such directory', async () => {
-        await handler.rmtree('dir')
         assert.equal((await rejectionOf(handler.list('dir'))).code, 'ENOENT')
       })
 
@@ -127,7 +131,7 @@ handlers.forEach(url => {
     })
 
     describe('#mkdir()', () => {
-      it('creates a directory', async () => {
+      it('creates a directory', { skip: skipFsNotInAzure() }, async () => {
         await handler.mkdir('dir')
         assert.deepEqual(await handler.list('.'), ['dir'])
       })
@@ -145,24 +149,24 @@ handlers.forEach(url => {
     })
 
     describe('#mktree()', () => {
-      it('creates a tree of directories', async () => {
+      it('creates a tree of directories', { skip: skipFsNotInAzure() }, async () => {
         await handler.mktree('dir/dir')
         assert.deepEqual(await handler.list('.'), ['dir'])
         assert.deepEqual(await handler.list('dir'), ['dir'])
       })
 
-      it('does not throw on existing directory', async () => {
+      it('does not throw on existing directory', { skip: skipFsNotInAzure() }, async () => {
         await handler.mktree('dir/dir')
         await handler.mktree('dir/dir')
       })
 
-      it('throws ENOTDIR on existing file', async () => {
+      it('throws ENOTDIR on existing file', { skip: skipFsNotInAzure() }, async () => {
         await handler.outputFile('dir/file', '')
         const error = await rejectionOf(handler.mktree('dir/file'))
         assert.equal(error.code, 'ENOTDIR')
       })
 
-      it('throws ENOTDIR on existing file in path', async () => {
+      it('throws ENOTDIR on existing file in path', { skip: skipFsNotInAzure() }, async () => {
         await handler.outputFile('file', '')
         const error = await rejectionOf(handler.mktree('file/dir'))
         assert.equal(error.code, 'ENOTDIR')
@@ -175,8 +179,7 @@ handlers.forEach(url => {
         assert.deepEqual(await handler.readFile('file'), TEST_DATA)
       })
 
-      it('throws on existing files', async () => {
-        await handler.unlink('file')
+      it('throws on existing files', { skip: skipFsNotInAzure() }, async () => {
         await handler.outputFile('file', '')
         const error = await rejectionOf(handler.outputFile('file', ''))
         assert.equal(error.code, 'EEXIST')
@@ -190,7 +193,7 @@ handlers.forEach(url => {
     })
 
     describe('#read()', () => {
-      before(() => handler.outputFile('file', TEST_DATA))
+      beforeEach(() => handler.outputFile('file', TEST_DATA))
 
       const start = random(TEST_DATA_LEN)
       const size = random(TEST_DATA_LEN)
@@ -241,21 +244,20 @@ handlers.forEach(url => {
     })
 
     describe('#rmdir()', () => {
-      it('should remove an empty directory', async () => {
+      it('should remove an empty directory', { skip: skipFsNotInAzure() }, async () => {
         await handler.mkdir('dir')
         await handler.rmdir('dir')
         assert.deepEqual(await handler.list('.'), [])
       })
 
-      it(`should throw on non-empty directory`, async () => {
+      it(`should throw on non-empty directory`, { skip: skipFsNotInAzure() }, async () => {
         await handler.outputFile('dir/file', '')
 
         const error = await rejectionOf(handler.rmdir('.'))
         assert.equal(error.code, 'ENOTEMPTY')
-        await handler.unlink('dir/file')
       })
 
-      it('does not throw on missing directory', async () => {
+      it('does not throw on missing directory', { skip: skipFsNotInAzure() }, async () => {
         await handler.rmdir('dir')
       })
     })
@@ -264,13 +266,12 @@ handlers.forEach(url => {
       it(`should remove a directory resursively`, async () => {
         await handler.outputFile('dir/file', '')
         await handler.rmtree('dir')
-
-        assert.deepEqual(await handler.list('.'), [])
+        assert.deepEqual(await handler.list('.', { ignoreMissing: true }), [])
       })
     })
 
     describe('#test()', () => {
-      it('tests the remote appears to be working', async () => {
+      it('tests the remote appears to be working', { skip: skipFsNotInAzure() }, async () => {
         const answer = await handler.test()
 
         assert.equal(answer.success, true)
@@ -284,7 +285,7 @@ handlers.forEach(url => {
         await handler.outputFile('file', TEST_DATA)
         await handler.unlink('file')
 
-        assert.deepEqual(await handler.list('.'), [])
+        assert.deepEqual(await handler.list('.', { ignoreMissing: true }), [])
       })
 
       it('does not throw on missing file', async () => {
@@ -347,7 +348,7 @@ handlers.forEach(url => {
           })(),
         },
         ({ length, expected }, title) => {
-          it(title, async () => {
+          it(title, { skip: skipFsNotInAzure() }, async () => {
             await handler.outputFile('file', TEST_DATA)
             await handler.truncate('file', length)
             assert.deepEqual(await handler.readFile('file'), expected)

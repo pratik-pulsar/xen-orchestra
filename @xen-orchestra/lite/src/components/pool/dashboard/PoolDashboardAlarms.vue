@@ -1,17 +1,17 @@
 <template>
   <UiCard class="pool-dashboard-alarms">
     <UiCardTitle>
-      {{ $t('alarms') }}
+      {{ t('alarms') }}
       <template v-if="isReady && alarms.length > 0" #right>
-        <UiCounter :value="alarms.length" color="error" />
+        <UiCounter :value="alarms.length" accent="danger" variant="primary" size="small" />
       </template>
     </UiCardTitle>
     <div v-if="!isStarted" class="pre-start">
       <div>
-        <p class="text typo h4-medium">
-          {{ $t('click-to-display-alarms') }}
+        <p class="text typo-h4">
+          {{ t('click-to-display-alarms') }}
         </p>
-        <UiButton @click="start">{{ $t('load-now') }}</UiButton>
+        <UiButton size="medium" accent="brand" variant="primary" @click="start">{{ t('load-now') }}</UiButton>
       </div>
       <div>
         <img alt="" src="@/assets/server-status.svg" />
@@ -25,7 +25,7 @@
       <div>
         <img alt="" src="@/assets/server-status.svg" />
       </div>
-      <p class="text typo h4-medium">{{ $t('all-good') }}<br />{{ $t('no-alarm-triggered') }}</p>
+      <p class="text typo-h4">{{ t('all-good') }}<br />{{ t('no-alarm-triggered') }}</p>
     </div>
     <div v-else class="table-container">
       <UiTable>
@@ -45,8 +45,11 @@ import UiCardSpinner from '@/components/ui/UiCardSpinner.vue'
 import UiCardTitle from '@/components/ui/UiCardTitle.vue'
 import UiTable from '@/components/ui/UiTable.vue'
 import { useAlarmStore } from '@/stores/xen-api/alarm.store'
-import UiButton from '@core/components/button/UiButton.vue'
-import UiCounter from '@core/components/UiCounter.vue'
+import UiButton from '@core/components/ui/button/UiButton.vue'
+import UiCounter from '@core/components/ui/counter/UiCounter.vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const { records: alarms, start, isStarted, isReady, hasError } = useAlarmStore().subscribe({ defer: true })
 </script>
@@ -70,7 +73,7 @@ const { records: alarms, start, isStarted, isReady, hasError } = useAlarmStore()
   }
 
   .no-alarm & {
-    color: var(--color-green-base);
+    color: var(--color-success-txt-base);
   }
 }
 

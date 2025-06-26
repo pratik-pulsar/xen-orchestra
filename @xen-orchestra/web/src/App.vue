@@ -2,19 +2,29 @@
   <AppLayout>
     <RouterView />
   </AppLayout>
-  <TooltipList />
+  <VtsTooltipList />
 </template>
 
 <script lang="ts" setup>
 import AppLayout from '@/layouts/AppLayout.vue'
-import TooltipList from '@core/components/tooltip/TooltipList.vue'
+import VtsTooltipList from '@core/components/tooltip-list/VtsTooltipList.vue'
+import { useChartTheme } from '@core/composables/chart-theme.composable.ts'
+import { locales } from '@core/i18n'
 import { useUiStore } from '@core/stores/ui.store'
 import { useActiveElement, useMagicKeys, whenever } from '@vueuse/core'
+import { useCookies } from '@vueuse/integrations/useCookies'
 import { logicAnd } from '@vueuse/math'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const uiStore = useUiStore()
+const { locale } = useI18n()
+const { get } = useCookies()
+
+const cookieLang = get('lang')
+locale.value = cookieLang && locales[cookieLang] ? cookieLang : 'en'
+
+useChartTheme()
 
 if (import.meta.env.DEV) {
   const { locale } = useI18n()

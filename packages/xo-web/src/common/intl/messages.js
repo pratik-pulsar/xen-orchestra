@@ -54,6 +54,7 @@ const messages = {
   notifications: 'Notifications',
   noNotifications: 'No notifications so far.',
   notificationNew: 'NEW!',
+  notYetAvailableForXs8: 'Not yet available for XenServer 8',
   moreDetails: 'More details',
   messageSubject: 'Subject',
   messageFrom: 'From',
@@ -84,6 +85,7 @@ const messages = {
   pools: 'Pools',
   remotes: 'Remotes',
   schedulerGranularity: 'Scheduler granularity',
+  setCbtError: 'Set CBT error',
   socket: 'Socket',
   type: 'Type',
   restore: 'Restore',
@@ -143,6 +145,7 @@ const messages = {
   addCustomField: 'Add custom field',
   advancedTagCreation: 'Advanced tag creation',
   availableXoaPremium: 'Available in XOA Premium',
+  availableXoaPlan: 'Available in XOA {plan}',
   detach: 'Detach',
   editCustomField: 'Edit custom field',
   deleteCustomField: 'Delete custom field',
@@ -151,6 +154,8 @@ const messages = {
   xcpNg: 'XCP-ng',
   noFileSelected: 'No file selected',
   nRetriesVmBackupFailures: 'Number of retries if VM backup fails',
+  sequence: 'Sequence',
+  sequences: 'Sequences',
 
   // ----- Modals -----
   alertOk: 'OK',
@@ -242,8 +247,10 @@ const messages = {
   xoConfig: 'XO config',
   backupVms: 'VM Backup & Replication',
   backupMetadata: 'XO config & Pool metadata Backup',
+  backupModeSourceRemoteRequired: 'Backup mode and source remote are required',
   mirrorBackup: 'Mirror backup',
   mirrorBackupVms: 'VM Mirror Backup',
+  mirrorAllVmBackups: 'Mirror all {mode} VM backups',
   jobsOverviewPage: 'Overview',
   jobsNewPage: 'New',
   jobsSchedulingPage: 'Scheduling',
@@ -393,6 +400,7 @@ const messages = {
   action: 'Action',
   item: 'Item',
   noSelectedValue: 'No selected value',
+  filterByTags: 'Filter by tags',
   selectSubjects: 'Choose user(s) and/or group(s)',
   selectObjects: 'Select object(s)…',
   selectRole: 'Choose a role',
@@ -482,6 +490,7 @@ const messages = {
   jobSkipped: 'Skipped',
   jobSuccess: 'Successful',
   allTasks: 'All',
+  taskDeleteLog: 'Delete task log',
   taskStart: 'Start',
   taskEnd: 'End',
   taskDuration: 'Duration',
@@ -530,7 +539,9 @@ const messages = {
   scheduleAdd: 'Add a schedule',
   scheduleDelete: 'Delete',
   scheduleRun: 'Run schedule',
+  scheduleSequence: 'Schedule sequence',
   unnamedSchedule: 'Unnamed schedule',
+  unnamedJob: 'Unnamed Job',
   deleteSelectedSchedules: 'Delete selected schedules',
   noScheduledJobs: 'No scheduled jobs.',
   legacySnapshotsLink: 'You can delete all your legacy backup snapshots.',
@@ -563,6 +574,9 @@ const messages = {
   reportRecipients: 'Report recipients',
   reportWhen: 'Report when',
   concurrency: 'Concurrency',
+  mergeBackupsSynchronously: 'Merge backups synchronously',
+  mergeBackupsSynchronouslyTooltip:
+    'This will use more resources on the backup thread, but ensure there is no locking error when chaining multiple backup jobs on the same remote',
   newBackupSelection: 'Select your backup type:',
   snapshotRetention: 'Snapshot retention',
   backupName: 'Name',
@@ -607,14 +621,21 @@ const messages = {
   customTag: 'Custom tag',
   editJobNotFound: "The job you're trying to edit wasn't found",
   preferNbd: 'Use NBD + CBT to transfer disk if available',
-  preferNbdInformation:
-    'A network accessible by XO or the proxy must have NBD enabled. Storage must support Change Block Tracking (CBT) to use it in a backup',
+  preferNbdInformation: 'A network accessible by XO or the proxy must have NBD enabled.',
   nbdConcurrency: 'Number of NBD connection per disk',
-  cbtDestroySnapshotData: 'Purge snapshot data when using CBT',
+  cbtDestroySnapshotData:
+    'Purge snapshot data when using CBT. This will automatically enable Change Block Tracking (CBT) on the disks',
   cbtDestroySnapshotDataInformation:
-    "The snapshot won't use any notable space on the SR, won't be shown in the UI and won't be usable to do a rollback",
+    "The snapshot won't use any notable space on the SR, won't be shown in the UI and won't be usable to do a rollback nor differential restores",
   cbtDestroySnapshotDataDisabledInformation:
     'Snapshot data can be purged only when NBD is enabled and rolling snapshot is not used',
+  shorterBackupReports: 'Shorter backup reports',
+  longTermRetention: 'Long-term retention of backups',
+  numberOfDailyBackupsKept: 'Number of daily backups kept',
+  numberOfWeeklyBackupsKept: 'Number of weekly backups kept',
+  numberOfMonthlyBackupsKept: 'Number of monthly backups kept',
+  numberOfYearlyBackupsKept: 'Number of yearly backups kept',
+  hideSuccessfulItems: 'Hide successful items in failure reports',
 
   // ------ New Remote -----
   newRemote: 'New file system remote',
@@ -622,6 +643,8 @@ const messages = {
   remoteTypeNfs: 'NFS',
   remoteTypeSmb: 'SMB',
   remoteTypeS3: 'Amazon Web Services S3',
+  remoteTypeAzure: 'Azure',
+  remoteTypeAzurite: 'Azurite',
   remoteType: 'Type',
   remoteSmbWarningMessage:
     'SMB remotes are meant to work with Windows Server. For other systems (Linux Samba, which means almost all NAS), please use NFS.',
@@ -635,6 +658,8 @@ const messages = {
   remoteTestNameFailure: 'Remote name already exists!',
   remoteTestSuccessMessage: 'The remote appears to work correctly',
   remoteConnectionFailed: 'Connection failed',
+  remoteContainer: 'Container',
+  remoteAccountName: 'Account name',
 
   // ------ Backup job -----
 
@@ -684,6 +709,17 @@ const messages = {
   remoteS3Region: 'Region, leave blank for default',
   remoteS3TooltipProtocol: 'Uncheck if you want HTTP instead of HTTPS',
   remoteS3TooltipAcceptInsecure: 'Check if you want to accept self signed certificates',
+  remoteAzureLabelUseHttps: 'Use HTTPS',
+  remoteAzureLabelAllowInsecure: 'Allow unauthorized',
+  remoteAzurePlaceHolderEndpoint: 'Azure endpoint (ex: username.blob.core.windows.net)',
+  remoteAzurePlaceHolderContainer: 'Azure container name',
+  remoteAzurePlaceHolderDirectory: 'Directory',
+  remoteAzurePlaceHolderAccessKeyID: 'Access key ID',
+  remoteAzurePlaceHolderSecret: 'Paste secret here to change it',
+  remoteAzurePlaceHolderEncryptionKey: 'Enter your encryption key here (32 characters)',
+  remoteAzureRegion: 'Region, leave blank for default',
+  remoteAzureTooltipProtocol: 'Uncheck if you want HTTP instead of HTTPS',
+  remoteAzureTooltipAcceptInsecure: 'Check if you want to accept self signed certificates',
   remotePlaceHolderPassword: 'Password(fill to edit)',
   remoteUseVhdDirectory:
     'Store backup as multiple data blocks instead of a whole VHD file. (creates 500-1000 files per backed up GB but allows faster merge)',
@@ -692,8 +728,7 @@ const messages = {
   remoteEncryptionBackupSize: 'Size of backup is not updated when using encryption.',
   remoteEncryptionEncryptedfiles:
     'All the files of the remote except the encryption.json are encrypted, that means you can only activate encryption or change key on an empty remote.',
-  remoteEncryptionMustUseVhd:
-    'Delta backup must use VHD saved as blocks (note: should be enforced when saving settings)',
+  remoteEncryptionMustUseVhd: 'Delta backup must use VHD saved as blocks',
   remoteEncryptionKey: 'Encrypt all new data sent to this remote',
   remoteEncryptionKeyStorageLocation:
     "You won't be able to get your data back if you lose the encryption key. The encryption key is saved in the XO config backup, they should be secured correctly. Be careful, if you saved it on an encrypted remote, then you won't be able to access it without the remote encryption key.",
@@ -903,6 +938,7 @@ const messages = {
   srReclaimSpaceNotSupported: 'Space reclaim not supported. Only supported on block based/LVM based SRs.',
 
   // ----- SR disks tab -----
+  isMetadataVdi: 'This snapshot has been purged of its data. It only contains the metadata and changed blocks.',
   multipleActiveVdis: '{firstVdi} and {nVdis} more',
   noActiveVdi: 'No active VDI',
 
@@ -966,6 +1002,7 @@ const messages = {
   noHost: 'No hosts',
   memoryLeftTooltip: '{used}% used ({free} free)',
   // ----- Pool network tab -----
+  bondMode: 'Bond Mode',
   pif: 'PIF',
   poolNetworkAutomatic: 'Automatic',
   poolNetworkNameLabel: 'Name',
@@ -994,6 +1031,7 @@ const messages = {
   addSrLabel: 'Add SR',
   addVmLabel: 'Add VM',
   addHostsLabel: 'Add hosts',
+  clickLinkForDetails: 'Follow this link for more details',
   missingPatchesPool:
     'The pool needs to install {nMissingPatches, number} patch{nMissingPatches, plural, one {} other {es}}. This operation may take a while.',
   missingPatchesHost:
@@ -1012,6 +1050,11 @@ const messages = {
   hostNoSupport: 'No XCP-ng Pro Support enabled on this host',
   hostSupportEnabled: 'XCP-ng Pro Support enabled on this host',
   noMoreMaintained: 'This host version is no longer maintained',
+  pubKeyTooShort: 'TLS key is too small to update host to XCP-ng 8.3',
+  longerCustomCertficate:
+    'If your certificate is custom, you need to install a new one with a key length of 2048 or greater.',
+  longerDefaultCertificate:
+    'If your certificate is the default self-signed certificate from host installation, you need to re-generate it from XCP-ng 8.2.1.',
 
   // ----- Host actions ------
   disableMaintenanceMode: 'Disable maintenance mode',
@@ -1105,10 +1148,13 @@ const messages = {
   hostIommu: 'IOMMU',
   hostNoCertificateInstalled: 'No certificates installed on this host',
   'onlyAvailableXcp8.3OrHigher': 'Only available for XCP-ng 8.3.0 or higher',
+  installRaidPlugin: 'To display RAID info, install raid.py plugin',
+  noRaidInformationAvailable: 'No RAID information available',
   pciDevices: 'PCI Devices',
   pciId: 'PCI ID',
   pcisEnable: 'PCI{nPcis, plural, one {} other {s}} enable',
   pcisDisable: 'PCI{nPcis, plural, one {} other {s}} disable',
+  passthroughEnabled: 'Passthrough enabled',
   pusbDevices: 'PUSB Devices',
   smartctlPluginNotInstalled: 'Smartctl plugin not installed',
   supplementalPacks: 'Installed supplemental packs',
@@ -1122,6 +1168,9 @@ const messages = {
   supplementalPackInstallSuccessTitle: 'Installation success',
   supplementalPackInstallSuccessMessage: 'Supplemental pack successfully installed.',
   systemDisksHealth: 'System disks health',
+  raidHealthy: 'All mdadm RAID are healthy ✅',
+  raidStateWarning: 'RAID state needs your attention: {state}',
+  raidStatus: 'RAID Status',
   uniqueHostIscsiIqnInfo: 'The iSCSI IQN must be unique. ',
   vendorId: 'Vendor ID',
   // ----- Host net tabs -----
@@ -1194,7 +1243,6 @@ const messages = {
   installPoolPatches: 'Install pool patches',
   confirmPoolPatch:
     'This will automatically restart the toolstack on every host. Running VMs will not be affected. Are you sure you want to continue and install all the patches on this pool?',
-  rollingPoolUpdateDisabledBecauseXostorOnPool: 'RPU is disabled because a XOSTOR storage is present in the pool',
   rollingPoolUpdate: 'Rolling pool update',
   rollingPoolUpdateMessage:
     'Are you sure you want to start a rolling pool update? Running VMs will be migrated back and forth and this can take a while. Scheduled backups that may concern this pool will be disabled.',
@@ -1364,6 +1412,7 @@ const messages = {
   warningVdiSr: "The VDIs' SRs must either be shared or on the same host for the VM to be able to start.",
   removeSelectedVdisFromVm: 'Remove selected VDIs from this VM',
   removeVdiFromVm: 'Remove VDI from this VM',
+  qcow2: 'QCOW2',
   vhd: 'VHD',
   vmdk: 'VMDK',
   raw: 'RAW',
@@ -1459,10 +1508,12 @@ const messages = {
   logAction: 'Action',
 
   // ----- VM advanced tab -----
+  addXenStoreEntry: 'Add new XenStore entry',
   attachedPcis: 'Attached PCIs',
   attachingDetachingPciNeedVmBoot: 'Attaching/detaching a PCI will be taken into consideration for the next VM boot.',
   attachPcis: 'Attach PCIs',
   createVtpm: 'Create a VTPM',
+  deleteEntryDeleteValue: 'To delete an entry, simply delete its value',
   deleteVtpm: 'Delete the VTPM',
   deleteVtpmWarning:
     'If the VTPM is in use, removing it will result in a dangerous data loss. Are you sure you want to remove the VTPM?',
@@ -1478,6 +1529,7 @@ const messages = {
   propagateCertificates: "Copy the pool's default UEFI certificates to the VM",
   propagateCertificatesSuccessful: 'Certificates propagated successfully',
   poolAutoPoweronDisabled: 'Auto power on is disabled at pool level, click to fix automatically.',
+  rebootRequiredAfterXenStoreChanges: 'A reboot is required after any XenStore changes',
   vmRemoveButton: 'Remove',
   vmConvertToTemplateButton: 'Convert to template',
   vmSwitchVirtualizationMode: 'Convert to {mode}',
@@ -1486,6 +1538,7 @@ const messages = {
     "You must know what you are doing, because it could break your setup (if you didn't install the bootloader in the MBR while switching from PV to HVM, or even worse, in HVM to PV, if you don't have the correct PV args)",
   vmShareButton: 'Share',
   xenSettingsLabel: 'Xen settings',
+  xenStore: 'XenStore',
   guestOsLabel: 'Guest OS',
   miscLabel: 'Misc',
   virtualizationMode: 'Virtualization mode',
@@ -1503,9 +1556,13 @@ const messages = {
   autoPowerOn: 'Auto power on',
   protectFromDeletion: 'Protect from accidental deletion',
   protectFromShutdown: 'Protect from accidental shutdown',
+  blockMigration: 'Prevent migration',
+  unblockMigrationTitle: 'Allow migration',
+  unblockMigrationConfirm: 'Are you sure you want to allow migration for this VM?',
   ha: 'HA',
   srHaTooltip: 'SR used for High Availability',
   nestedVirt: 'Nested virtualization',
+  nestedVirtualizationWarning: 'Unstable feature, insecure for the host, usage is discouraged. Click for more details.',
   vmAffinityHost: 'Affinity host',
   vmNeedToBeHalted: 'The VM needs to be halted',
   vmVga: 'VGA',
@@ -1661,9 +1718,12 @@ const messages = {
   missingVm: 'Missing VM',
   missingVmInJob: 'This VM does not belong to this job',
   missingSchedule: 'Missing schedule',
+  unknownSchedule: 'Unknown schedule',
   noDetachedBackups: 'No backups',
   noDuplicatedMacAddresses: 'No duplicated MAC addresses',
+  noOldSnapshots: 'No snapshots older than 30 days with no enabled schedule',
   reason: 'Reason',
+  oldSnapshots: 'Snapshots older than 30 days with no enabled schedule',
   orphanedVdis: 'Orphan VDIs',
   orphanVdisTip: 'VDIs and VDI snapshots that are not attached to a VM',
   orphanedVms: 'Orphaned VMs snapshot',
@@ -1957,7 +2017,10 @@ const messages = {
   remoteLoadBackupsFailureMessage: 'Failed to load backups from {name}.',
   vmsTags: 'VMs tags',
   tagNoBak: 'VMs with this tag will not be backed up {reason, select, null {} other {({reason})}}',
+  tagNoHealthCheck: 'VMs with this tag will not be tested by health check {reason, select, null {} other {({reason})}}',
   tagNotifyOnSnapshot: 'An email will be sent when a VM with this tag is snapshotted',
+  nbdConnections: `NBD connections`,
+  speedLimitNoUnit: 'Speed limit',
 
   // ----- Restore files view -----
   restoreFiles: 'Restore backup files',
@@ -1980,6 +2043,8 @@ const messages = {
   // ----- Modals -----
   bypassBackupHostModalMessage: 'There may be ongoing backups on the host. Are you sure you want to continue?',
   bypassBackupPoolModalMessage: 'There may be ongoing backups on the pool. Are you sure you want to continue?',
+  bypassBlockedMigrationsModalTitle: 'Bypass blocked migrations',
+  bypassBlockedMigrationsModalMessage: 'This will allow migration on these VMs: {vms}',
   emergencyShutdownHostModalTitle: 'Emergency shutdown Host',
   emergencyShutdownHostModalMessage: 'Are you sure you want to shutdown {host}?',
   emergencyShutdownHostsModalTitle: 'Emergency shutdown Host{nHosts, plural, one {} other {s}}',
@@ -2285,7 +2350,6 @@ const messages = {
   update: 'Update',
   refresh: 'Refresh',
   upgrade: 'Upgrade',
-  downgrade: 'Downgrade',
   considerSubscribe:
     'Please consider subscribing and trying it with all the features for free during 30 days on {link}.',
   currentVersion: 'Current version:',
@@ -2391,6 +2455,7 @@ const messages = {
   removeOtpConfirm: 'Remove OTP authentication',
   removeOtpConfirmMessage: 'Are you sure you want to remove OTP authentication?',
   OtpAuthentication: 'OTP authentication',
+  OtpCode: 'OTP code',
 
   // ----- Usage -----
   others: '{nOthers, number} other{nOthers, plural, one {} other {s}}',
@@ -2670,8 +2735,7 @@ const messages = {
   replication: 'Replication',
   replicationCountHigherThanHostsWithDisks: 'Replication count is higher than number of hosts with disks',
   resourceList: 'Resource list',
-  rpuNoLongerAvailableIfXostor:
-    'As long as a XOSTOR storage is present in the pool, Rolling Pool Update will not be available',
+  rpuRequireVmsReboot: 'To fully apply the patches, some VMs will reboot. Are you sure you want to continue?',
   selectDisks: 'Select disk(s)…',
   selectedDiskTypeIncompatibleXostor: 'Only disks of type "Disk" and "Raid" are accepted. Selected disk type: {type}.',
   setAsPreferred: 'Set as preferred',
@@ -2749,6 +2813,16 @@ const messages = {
   noAuditRecordAvailable: 'No audit record available',
   refreshAuditRecordsList: 'Refresh records list',
   auditInactiveUserActionsRecord: 'User actions recording is currently inactive',
+  importAuditRecords: 'Import records',
+  importRecordsTip: 'Try dropping a .ndjson.gz or .ndjson file here or click to select a file.',
+  importAuditRecordsCleanList: 'Reset',
+  importAuditRecordsButton: 'Import',
+  importAuditRecordsTooltip: 'Import audit record from another XOA. Audit log database must be empty.',
+  importAuditRecordsSuccess: 'Audit records successfully imported',
+  importAuditRecordsSuccessWithProblems:
+    "Audit records successfully imported, but {nInvalidRecords} invalid records were imported and at least {nMissingRecords} records were missing. Logs prior to the missing entries will not appear. The oldest visible log's ID is {lastLogId}",
+  importAuditRecordsError: 'Error while importing audit records: {importError}',
+  noAuditRecordsFile: 'No audit records file selected',
 
   // Licenses
   allHostsMustBeBound: 'All hosts must be bound to a license',
@@ -2810,6 +2884,10 @@ const messages = {
   enterpriseLicense: 'Enterprise license',
   premiumLicense: 'Premium license',
   trialLicenseInfo: 'You are currently in a {edition} trial period that will end on {date, date, medium}',
+  licenseNearlyExpired:
+    'Your current Xen Orchestra license is about to expire (less than {duration} to {date, date, medium}). Please reach out to your vendor.',
+  licenseExpired:
+    'Your current Xen Orchestra license has expired ({date, date, medium}). Please reach out to your vendor.',
   proxyMultipleLicenses: 'This proxy has more than 1 license!',
   proxyUnknownVm: 'Unknown proxy VM.',
   xostorProSupportEnabled: 'XOSTOR Pro Support enabled',
@@ -2866,6 +2944,8 @@ const messages = {
     '{days, plural, =0 {} one {# day } other {# days }}{hours, plural, =0 {} one {# hour } other {# hours }}{minutes, plural, =0 {} one {# minute } other {# minutes }}{seconds, plural, =0 {} one {# second} other {# seconds}}',
 
   // ----- IPMI -----
+  currentBiosVersion: 'Current BIOS version: {version}',
+  downloadBiosUpdate: 'Download BIOS update ({version})',
   highestCpuTemperature: '{n, number}x CPU{n, plural, one {} other {s}} (highest: {degres})',
   highestFanSpeed: '{n, number}x fan{n, plural, one {} other {s}} (highest: {speed})',
   inletTemperature: 'Inlet temperature',

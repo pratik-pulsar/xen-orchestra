@@ -3,13 +3,14 @@ import getStream from 'get-stream'
 import { asyncEach } from '@vates/async-each'
 import { coalesceCalls } from '@vates/coalesce-calls'
 import { createLogger } from '@xen-orchestra/log'
-import { fromCallback, fromEvent, ignoreErrors, timeout } from 'promise-toolbox'
+import { fromCallback, fromEvent, ignoreErrors, pRetry } from 'promise-toolbox'
 import { limitConcurrency } from 'limit-concurrency-decorator'
 import { parse } from 'xo-remote-parser'
 import { pipeline } from 'stream'
 import { randomBytes, randomUUID } from 'crypto'
 import { synchronized } from 'decorator-synchronized'
 
+import { withTimeout } from './utils'
 import { basename, dirname, normalize as normalizePath } from './path'
 import { createChecksumStream, validChecksumOfReadStream } from './checksum'
 import { DEFAULT_ENCRYPTION_ALGORITHM, UNENCRYPTED_ALGORITHM, _getEncryptor } from './_encryptor'
@@ -27,6 +28,58 @@ const DEFAULT_MAX_PARALLEL_OPERATIONS = 10
 
 const ENCRYPTION_DESC_FILENAME = 'encryption.json'
 const ENCRYPTION_METADATA_FILENAME = 'metadata.json'
+
+const WITH_LIMIT = [
+  'closeFile',
+  'copy',
+  'getInfo',
+  'getSizeOnDisk',
+  'list',
+  'mkdir',
+  'openFile',
+  'outputFile',
+  'read',
+  'readFile',
+  'rename',
+  'rmdir',
+  'truncate',
+  'unlink',
+  'write',
+  'writeFile',
+]
+
+const WITH_RETRY = [
+  '_closeFile',
+  '_copy',
+  '_getInfo',
+  '_getSize',
+  '_list',
+  '_mkdir',
+  '_openFile',
+  '_outputFile',
+  '_read',
+  '_readFile',
+  '_rename',
+  '_rmdir',
+  '_truncate',
+  '_unlink',
+  '_write',
+  '_writeFile',
+]
+
+const WITH_TIMEOUT = [
+  '_closeFile',
+  '_createReadStream',
+  '_getInfo',
+  '_getSize',
+  '_list',
+  '_rename',
+  '_copy',
+  '_rmdir',
+  '_closeFile',
+  '_openFile',
+  '_createOutputStream',
+]
 
 const ignoreEnoent = error => {
   if (error == null || error.code !== 'ENOENT') {
@@ -93,28 +146,59 @@ export default class RemoteHandlerAbstract {
         throw new Error('Incorrect remote type')
       }
     }
-    ;({ highWaterMark: this._highWaterMark, timeout: this._timeout = DEFAULT_TIMEOUT } = options)
+    ;({
+      highWaterMark: this._highWaterMark,
+      timeout: this._timeout = DEFAULT_TIMEOUT,
+      withLimit: this._withLimit = WITH_LIMIT,
+      withTimeout: this._withTimeout = WITH_TIMEOUT,
+      withRetry: this._withRetry = WITH_RETRY,
+    } = options)
 
+    this.#applySafeGuards(options)
+  }
+
+  #conditionRetry(error) {
+    return !['EEXIST', 'EISDIR', 'ENOTEMPTY', 'ENOENT', 'ENOTDIR', 'SystemInUse'].includes(error?.code)
+  }
+
+  #applySafeGuards(options) {
     const sharedLimit = limitConcurrency(options.maxParallelOperations ?? DEFAULT_MAX_PARALLEL_OPERATIONS)
-    this.closeFile = sharedLimit(this.closeFile)
-    this.copy = sharedLimit(this.copy)
-    this.getInfo = sharedLimit(this.getInfo)
-    this.getSize = sharedLimit(this.getSize)
-    this.list = sharedLimit(this.list)
-    this.mkdir = sharedLimit(this.mkdir)
-    this.openFile = sharedLimit(this.openFile)
-    this.outputFile = sharedLimit(this.outputFile)
-    this.read = sharedLimit(this.read)
-    this.readFile = sharedLimit(this.readFile)
-    this.rename = sharedLimit(this.rename)
-    this.rmdir = sharedLimit(this.rmdir)
-    this.truncate = sharedLimit(this.truncate)
-    this.unlink = sharedLimit(this.unlink)
-    this.write = sharedLimit(this.write)
-    this.writeFile = sharedLimit(this.writeFile)
 
     this._forget = coalesceCalls(this._forget)
     this._sync = coalesceCalls(this._sync)
+
+    this._withLimit.forEach(functionName => {
+      if (this[functionName] !== undefined) {
+        this[functionName] = sharedLimit(this[functionName])
+      }
+    })
+
+    this._withTimeout.forEach(functionName => {
+      if (this[functionName] !== undefined) {
+        this[functionName] = withTimeout(this[functionName], DEFAULT_TIMEOUT)
+      }
+    })
+
+    this._withRetry.forEach(functionName => {
+      if (this[functionName] !== undefined) {
+        // adding the retry on the top level method won't
+        // cover when _functionName are called internally
+        this[functionName] = pRetry.wrap(this[functionName], {
+          delays: [100, 200, 500, 1000, 2000],
+          // these errors should not change on retry
+          when: err => this.#conditionRetry(err),
+          onRetry(error) {
+            warn('retrying method on fs ', {
+              method: functionName,
+              attemptNumber: this.attemptNumber,
+              delay: this.delay,
+              error,
+              file: this.arguments?.[0],
+            })
+          },
+        })
+      }
+    })
   }
 
   // Public members
@@ -140,11 +224,7 @@ export default class RemoteHandlerAbstract {
       file = normalizePath(file)
     }
 
-    let stream = await timeout.call(
-      this._createReadStream(file, { ...options, highWaterMark: this._highWaterMark }),
-      this._timeout
-    )
-
+    let stream = await this._createReadStream(file, { ...options, highWaterMark: this._highWaterMark })
     // detect early errors
     await fromEvent(stream, 'readable')
 
@@ -165,14 +245,18 @@ export default class RemoteHandlerAbstract {
 
     if (this.isEncrypted) {
       stream = this.#encryptor.decryptStream(stream)
-    } else {
-      // try to add the length prop if missing and not a range stream
-      if (stream.length === undefined && options.end === undefined && options.start === undefined) {
-        try {
+    }
+
+    // try to add the length prop if missing and not a range stream
+    if (stream.length === undefined && options.end === undefined && options.start === undefined) {
+      try {
+        if (this.isEncrypted) {
+          stream.maxStreamLength = await this.getSizeOnDisk(file)
+        } else {
           stream.length = await this._getSize(file)
-        } catch (error) {
-          // ignore errors
         }
+      } catch (error) {
+        // ignore errors
       }
     }
 
@@ -206,16 +290,16 @@ export default class RemoteHandlerAbstract {
       validator,
     })
     if (checksum) {
-      // using _outpuFile means the checksum will NOT be encrypted
+      // using _outputFile means the checksum will NOT be encrypted
       // it is by design to allow checking of encrypted files without the key
       await this._outputFile(checksumFile(path), await checksumStream.checksum, { dirMode, flags: 'wx' })
     }
   }
 
   // Free the resources possibly dedicated to put the remote at work, when it
-  // is no more needed
+  // is no longer needed
   //
-  // FIXME: Some handlers are implemented based on system-wide mecanisms (such
+  // FIXME: Some handlers are implemented based on system-wide mechanisms (such
   // as mount), forgetting them might breaking other processes using the same
   // remote.
   @synchronized()
@@ -224,16 +308,18 @@ export default class RemoteHandlerAbstract {
   }
 
   async getInfo() {
-    return timeout.call(this._getInfo(), this._timeout)
+    return this._getInfo()
   }
 
-  // when using encryption, the file size is aligned with the encryption block size ( 16 bytes )
-  // that means that the size will be 1 to 16 bytes more than the content size + the initialized vector length (16 bytes)
+  // returns the real size occupied by an unencrypted file
+  // encrypted files have metadata and padding that blur the real size
   async getSize(file) {
     assert.strictEqual(this.isEncrypted, false, `Can't compute size of an encrypted file ${file}`)
+    return this.getSizeOnDisk(file)
+  }
 
-    const size = await timeout.call(this._getSize(typeof file === 'string' ? normalizePath(file) : file), this._timeout)
-    return size - this.#encryptor.ivLength
+  async getSizeOnDisk(file) {
+    return this._getSize(typeof file === 'string' ? normalizePath(file) : file)
   }
 
   async __list(dir, { filter, ignoreMissing = false, prependDir = false } = {}) {
@@ -241,7 +327,7 @@ export default class RemoteHandlerAbstract {
       const virtualDir = normalizePath(dir)
       dir = normalizePath(dir)
 
-      let entries = await timeout.call(this._list(dir), this._timeout)
+      let entries = await this._list(dir)
       if (filter !== undefined) {
         entries = entries.filter(filter)
       }
@@ -287,7 +373,7 @@ export default class RemoteHandlerAbstract {
 
   async #rename(oldPath, newPath, { checksum }, createTree = true) {
     try {
-      let p = timeout.call(this._rename(oldPath, newPath), this._timeout)
+      let p = this._rename(oldPath, newPath)
       if (checksum) {
         p = Promise.all([p, this._rename(checksumFile(oldPath), checksumFile(newPath))])
       }
@@ -310,7 +396,7 @@ export default class RemoteHandlerAbstract {
     oldPath = normalizePath(oldPath)
     newPath = normalizePath(newPath)
 
-    let p = timeout.call(this._copy(oldPath, newPath), this._timeout)
+    let p = this._copy(oldPath, newPath)
     if (checksum) {
       p = Promise.all([p, this._copy(checksumFile(oldPath), checksumFile(newPath))])
     }
@@ -318,14 +404,14 @@ export default class RemoteHandlerAbstract {
   }
 
   async rmdir(dir) {
-    await timeout.call(this._rmdir(normalizePath(dir)).catch(ignoreEnoent), this._timeout)
+    await this._rmdir(normalizePath(dir)).catch(ignoreEnoent)
   }
 
   async rmtree(dir) {
     await this._rmtree(normalizePath(dir))
   }
 
-  // Asks the handler to sync the state of the effective remote with its'
+  // Asks the handler to sync the state of the effective remote with its
   // metadata
   //
   // This method MUST ALWAYS be called before using the handler.
@@ -380,7 +466,7 @@ export default class RemoteHandlerAbstract {
       const data = await this.__readFile(ENCRYPTION_METADATA_FILENAME)
       JSON.parse(data)
     } catch (error) {
-      // can be enoent, bad algorithm, or broeken json ( bad key or algorithm)
+      // can be enoent, bad algorithm, or broken json ( bad key or algorithm)
       if (encryptionAlgorithm !== 'none') {
         if (await this.#canWriteMetadata()) {
           // any other error , but on empty remote => update with remote settings
@@ -388,6 +474,11 @@ export default class RemoteHandlerAbstract {
           info('will update metadata of this remote')
           return this.#createMetadata()
         } else {
+          // to add a new encrypted fs remote, the remote directory must be empty; otherwise, metadata.json is not created
+          if (error.code === 'ENOENT' && error.path.includes('metadata.json')) {
+            throw new Error('Remote directory must be empty.')
+          }
+
           warn(
             `The encryptionKey settings of this remote does not match the key used to create it. You won't be able to read any data from this remote`,
             { error }
@@ -462,7 +553,7 @@ export default class RemoteHandlerAbstract {
   // Methods that can be called by private methods to avoid parallel limit on public methods
 
   async __closeFile(fd) {
-    await timeout.call(this._closeFile(fd.fd), this._timeout)
+    await this._closeFile(fd.fd)
   }
 
   async __mkdir(dir, { mode } = {}) {
@@ -484,7 +575,7 @@ export default class RemoteHandlerAbstract {
     path = normalizePath(path)
 
     return {
-      fd: await timeout.call(this._openFile(path, flags), this._timeout),
+      fd: await this._openFile(path, flags),
       path,
     }
   }
@@ -577,13 +668,10 @@ export default class RemoteHandlerAbstract {
 
   async _outputStream(path, input, { dirMode, validator }) {
     const tmpPath = `${dirname(path)}/.${basename(path)}`
-    const output = await timeout.call(
-      this._createOutputStream(tmpPath, {
-        dirMode,
-        flags: 'wx',
-      }),
-      this._timeout
-    )
+    const output = await this._createOutputStream(tmpPath, {
+      dirMode,
+      flags: 'wx',
+    })
     try {
       await fromCallback(pipeline, input, output)
       if (validator !== undefined) {
@@ -625,19 +713,25 @@ export default class RemoteHandlerAbstract {
     }
 
     const files = await this._list(dir)
-    await asyncEach(files, file =>
-      this._unlink(`${dir}/${file}`).catch(
-        error => {
+    await asyncEach(
+      files,
+      file =>
+        this._unlink(`${dir}/${file}`).catch(error => {
           // Unlink dir behavior is not consistent across platforms
           // https://github.com/nodejs/node-v0.x-archive/issues/5791
           if (error.code === 'EISDIR' || error.code === 'EPERM') {
-            return this._rmtree(`${dir}/${file}`)
+            return this._rmtree(`${dir}/${file}`).catch(rmTreeError => {
+              if (rmTreeError.code === 'ENOTDIR') {
+                // this was really a EPERM error, maybe with immutable backups
+                throw error
+              }
+              throw rmTreeError
+            })
           }
           throw error
-        },
-        // real unlink concurrency will be 2**max directory depth
-        { concurrency: 2 }
-      )
+        }),
+      // real unlink concurrency will be 2**max directory depth
+      { concurrency: 2 }
     )
     return this._rmtree(dir)
   }

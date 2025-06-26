@@ -1,25 +1,32 @@
 <template>
-  <TreeItem :expanded="branch.isExpanded">
-    <TreeItemLabel :icon="faServer" :route="`/host/${branch.data.id}`" @toggle="branch.toggleExpand()">
+  <VtsTreeItem :expanded="branch.isExpanded">
+    <UiTreeItemLabel :icon="faServer" :route="`/host/${branch.data.id}`" @toggle="branch.toggleExpand()">
       {{ branch.data.name_label }}
       <template #icon>
-        <ObjectIcon
+        <UiObjectIcon
           v-tooltip="branch.data.power_state"
           type="host"
+          size="medium"
           :state="branch.data.power_state.toLocaleLowerCase() as HostState"
         />
       </template>
       <template #addons>
-        <UiIcon v-if="isMaster" v-tooltip="$t('master')" :icon="faStar" color="warning" />
-        <UiCounter v-tooltip="$t('running-vm', runningVmsCount)" :value="runningVmsCount" color="info" />
+        <VtsIcon v-if="isMaster" v-tooltip="t('master')" accent="info" :icon="faCircle" :overlay-icon="faStar" />
+        <UiCounter
+          v-tooltip="t('running-vm', runningVmsCount)"
+          :value="runningVmsCount"
+          accent="brand"
+          variant="secondary"
+          size="small"
+        />
       </template>
-    </TreeItemLabel>
+    </UiTreeItemLabel>
     <template v-if="branch.hasChildren" #sublist>
-      <TreeList>
+      <VtsTreeList>
         <VmTreeList :leaves="branch.children" />
-      </TreeList>
+      </VtsTreeList>
     </template>
-  </TreeItem>
+  </VtsTreeItem>
 </template>
 
 <script lang="ts" setup>
@@ -28,19 +35,22 @@ import { useHostStore } from '@/stores/xo-rest-api/host.store'
 import { useVmStore } from '@/stores/xo-rest-api/vm.store'
 import type { HostBranch } from '@/types/tree.type'
 import type { HostState } from '@core/types/object-icon.type'
-import ObjectIcon from '@core/components/icon/ObjectIcon.vue'
-import UiIcon from '@core/components/icon/UiIcon.vue'
-import TreeItem from '@core/components/tree/TreeItem.vue'
-import TreeItemLabel from '@core/components/tree/TreeItemLabel.vue'
-import TreeList from '@core/components/tree/TreeList.vue'
-import UiCounter from '@core/components/UiCounter.vue'
+import VtsIcon from '@core/components/icon/VtsIcon.vue'
+import VtsTreeItem from '@core/components/tree/VtsTreeItem.vue'
+import VtsTreeList from '@core/components/tree/VtsTreeList.vue'
+import UiCounter from '@core/components/ui/counter/UiCounter.vue'
+import UiObjectIcon from '@core/components/ui/object-icon/UiObjectIcon.vue'
+import UiTreeItemLabel from '@core/components/ui/tree-item-label/UiTreeItemLabel.vue'
 import { vTooltip } from '@core/directives/tooltip.directive'
-import { faServer, faStar } from '@fortawesome/free-solid-svg-icons'
+import { faCircle, faServer, faStar } from '@fortawesome/free-solid-svg-icons'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 const props = defineProps<{
   branch: HostBranch
 }>()
+
+const { t } = useI18n()
 
 const { isMasterHost } = useHostStore().subscribe()
 const { runningVms } = useVmStore().subscribe()

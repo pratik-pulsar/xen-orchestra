@@ -17,21 +17,17 @@
 
 <script lang="ts" setup>
 import UiIcon from '@/components/ui/icon/UiIcon.vue'
-import { useContext } from '@/composables/context.composable'
-import { DisabledContext } from '@/context'
+import { useDisabled } from '@core/composables/disabled.composable'
 import type { IconDefinition } from '@fortawesome/fontawesome-common-types'
 
-const props = withDefaults(
-  defineProps<{
-    busy?: boolean
-    disabled?: boolean
-    icon?: IconDefinition
-    active?: boolean
-  }>(),
-  { disabled: undefined }
-)
+const props = defineProps<{
+  busy?: boolean
+  disabled?: boolean
+  icon?: IconDefinition
+  active?: boolean
+}>()
 
-const isDisabled = useContext(DisabledContext, () => props.disabled)
+const isDisabled = useDisabled(() => props.disabled)
 </script>
 
 <style lang="postcss" scoped>
@@ -46,24 +42,24 @@ const isDisabled = useContext(DisabledContext, () => props.disabled)
   border: none;
   border-radius: 0.8rem;
   gap: 1rem;
-  background-color: var(--background-color-primary);
+  background-color: var(--color-neutral-background-primary);
 
   &.disabled {
-    color: var(--color-grey-500);
+    color: var(--color-neutral-border);
   }
 
   &:not(.disabled) {
-    color: var(--color-grey-200);
+    color: var(--color-neutral-txt-secondary);
 
     &:hover {
-      background-color: var(--background-color-secondary);
+      background-color: var(--color-neutral-background-secondary);
     }
 
     &:active,
     &.active,
     &.busy {
-      color: var(--color-purple-base);
-      background-color: var(--background-color-purple-10);
+      color: var(--color-brand-txt-base);
+      background-color: var(--color-brand-background-selected);
     }
   }
 }

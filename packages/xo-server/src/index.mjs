@@ -233,7 +233,7 @@ async function setUpPassport(express, xo, { authentication: authCfg, http: { coo
   })
 
   const PERMANENT_VALIDITY = ifDef(authCfg.permanentCookieValidity, parseDuration)
-  const SESSION_VALIDITY = ifDef(authCfg.sessionCookieValidity, parseDuration)
+  const SESSION_VALIDITY = parseDuration(authCfg.sessionCookieValidity)
   const TEN_YEARS = 10 * 365 * 24 * 60 * 60 * 1e3
   const createAndSaveToken = async (req, res, next) => {
     let { clientId } = req.cookies
@@ -274,7 +274,8 @@ async function setUpPassport(express, xo, { authentication: authCfg, http: { coo
   }
 
   const SIGNIN_STRATEGY_RE = /^\/signin\/([^/]+)(\/callback)?(:?\?.*)?$/
-  const UNCHECKED_URL_RE = /(?:^\/rest\/)|favicon|manifest\.webmanifest|fontawesome|images|styles|\.(?:css|jpg|png)$/
+  const UNCHECKED_URL_RE =
+    /(?:^\/rest\/)|favicon|manifest\.webmanifest|fontawesome|images|styles|\.(?:css|jpg|png|svg)$/
   express.use(async (req, res, next) => {
     const { url } = req
 
@@ -887,7 +888,7 @@ export default async function main(args) {
   await xo.hooks.clean()
 
   const useForwardedHeaders = (() => {
-    // recompile the fonction when the setting change
+    // recompile the function when the setting change
     let useForwardedHeaders
     xo.config.watch('http.useForwardedHeaders', val => {
       useForwardedHeaders = typeof val === 'boolean' ? () => val : proxyAddr.compile(val)

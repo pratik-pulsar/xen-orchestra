@@ -1,7 +1,12 @@
 <template>
   <Transition name="slide">
-    <nav v-if="isDesktop || isOpen" ref="navElement" :class="{ collapsible: isMobile }" class="app-navigation">
-      <StoryMenu v-if="$route.meta.hasStoryNav" />
+    <nav
+      v-if="uiStore.isDesktop || isOpen"
+      ref="navElement"
+      :class="{ collapsible: uiStore.isMobile }"
+      class="app-navigation"
+    >
+      <StoryMenu v-if="route.meta.hasStoryNav" />
       <InfraPoolList v-else />
     </nav>
   </Transition>
@@ -15,9 +20,11 @@ import { useUiStore } from '@core/stores/ui.store'
 import { onClickOutside, whenever } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
 import { ref } from 'vue'
+import { useRoute } from 'vue-router'
+
+const route = useRoute()
 
 const uiStore = useUiStore()
-const { isMobile, isDesktop } = storeToRefs(uiStore)
 
 const navigationStore = useNavigationStore()
 const { isOpen, trigger } = storeToRefs(navigationStore)
@@ -33,6 +40,7 @@ whenever(isOpen, () => {
     },
     {
       ignore: [trigger],
+      controls: false,
     }
   )
 })
@@ -45,8 +53,8 @@ whenever(isOpen, () => {
   max-width: 37rem;
   height: calc(100vh - 5.5rem);
   padding: 0.5rem;
-  border-right: 1px solid var(--color-grey-500);
-  background-color: var(--background-color-primary);
+  border-right: 1px solid var(--color-neutral-border);
+  background-color: var(--color-neutral-background-primary);
 
   &.collapsible {
     position: fixed;
@@ -58,6 +66,7 @@ whenever(isOpen, () => {
 .slide-leave-active {
   transition: transform 0.3s ease;
 }
+
 .slide-enter-from,
 .slide-leave-to {
   transform: translateX(-37rem);

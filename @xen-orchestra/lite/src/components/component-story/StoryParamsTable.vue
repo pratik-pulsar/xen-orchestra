@@ -1,5 +1,5 @@
 <template>
-  <table class="story-params-table typo p2-regular">
+  <table class="story-params-table typo-body-regular-small">
     <slot />
   </table>
 </template>
@@ -22,12 +22,12 @@
     th,
     td {
       padding: 0.3rem 0.6rem;
-      border-bottom: 0.1rem solid var(--color-grey-500);
+      border-bottom: 0.1rem solid var(--color-neutral-border);
       vertical-align: center;
     }
 
     &:nth-child(odd) {
-      background-color: var(--background-color-purple-10);
+      background-color: var(--color-brand-background-selected);
     }
   }
 

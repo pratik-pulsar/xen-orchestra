@@ -56,13 +56,23 @@ maxTokenValidity = '0.5 year'
 # - if false: the user will not be able to log in.
 mergeProvidersUsers = true
 
-# Default to `maxTokenValidity`
+# This setting determines the duration for which cookies and their related
+# authentication tokens remain valid after a user logs in with the 'Remember me'
+# option selected.
+#
+# Defaults to `defaultTokenValidity`.
 #permanentCookieValidity = '30 days'
 
-# Default to `undefined`, ie as long as the browser is not restarted
+# This setting determines the validity period of authentication tokens when the
+# 'Remember me' option is not checked.
+#
+# Cookies will be sent without an explicit expiration date, causing them to
+# expire automatically once the browser window closes. However, this behavior
+# may not always occur if the browser is set to restore the session (including
+# tabs) on startup.
 #
 # https://developer.mozilla.org/fr/docs/Web/HTTP/Headers/Set-Cookie#Session_cookie
-#sessionCookieValidity = '10 hours'
+sessionCookieValidity = '10 hours'
 
 # This is the page where unauthenticated users will be redirected to.
 #
@@ -75,9 +85,12 @@ defaultSignInPage = '/signin'
 # This is used to mitigate bruteforce attacks without being visible to users.
 throttlingDelay = '2 seconds'
 
+# This [backups] section and its subsections ([backups.defaultSettings], [backups.vm.defaultSettings], [backups.metadata.defaultSettings]) are passed to @xen-orchestra/backups
+# See https://github.com/vatesfr/xen-orchestra/blob/master/%40xen-orchestra/backups/README.md#changing-the-default-backup-configuration
 [backups]
 autoUnmountPartitionDelay = '24h'
 
+# Disables VHD merges running in background
 disableMergeWorker = false
 
 # Mode to use for newly created backup directories
@@ -99,7 +112,7 @@ vhdDirectoryCompression = 'brotli'
 mergeBlockConcurrency = 2
 
 # how many block can be uploaded in parallel
-# increase to in rease performance, reduce if you have timeout or memory error during transfer
+# increase to increase performance, reduce if you have timeout or memory error during transfer
 writeBlockConcurrency = 16
 
 # https://github.com/naugtur/blocked-at#params-and-return-value
@@ -119,7 +132,7 @@ useForwardedHeaders = false
 # Each `http.listen.<name>` entry defines a specific listening configuration for
 # the HTTP server.
 #
-# `<name>` can be freely choosen.
+# `<name>` can be freely chosen.
 #
 # Historically, `http.listen` was an array with the first config for HTTP and
 # the second for HTTPS. To avoid breaking existing user configs, this convention
@@ -160,6 +173,9 @@ level = 'info'
 
 [logs.transport.console]
 
+[netbox]
+checkNetboxVersion = true
+
 [plugins]
 lookupPaths = ['./node_modules', '../', '/usr/local/lib/node_modules']
 
@@ -187,6 +203,7 @@ vdiExportConcurrency = 12
 vmEvacuationConcurrency = 3
 vmExportConcurrency = 2
 vmSnapshotConcurrency = 2
+vdiDelayBeforeRemovingCloudConfigDrive = '5 min'
 
 poolMarkingInterval = '6 hours'
 poolMarkingMaxAge = '48 hours'
@@ -212,3 +229,7 @@ vmTag = 'XOA Proxy'
 
 # The duration for which we can wait for the XOA to be upgraded
 xoaUpgradeTimeout = '5 min'
+
+[rest-api]
+dashboardCacheTimeout = '1 min'
+dashboardCacheExpiresIn = '1 min'

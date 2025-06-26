@@ -2,15 +2,20 @@
 <template>
   <slot :is-open="isOpen" :open="open" name="trigger" />
   <Teleport :disabled="!shouldTeleport" to="body">
-    <ul v-if="!hasTrigger || isOpen" ref="menu" :class="{ horizontal, shadow }" class="menu-list" v-bind="$attrs">
+    <ul
+      v-if="!hasTrigger || isOpen"
+      ref="menu"
+      :class="{ horizontal, border: !noBorder }"
+      class="menu-list"
+      v-bind="$attrs"
+    >
       <slot />
     </ul>
   </Teleport>
 </template>
 
 <script lang="ts" setup>
-import { useContext } from '@core/composables/context.composable'
-import { DisabledContext } from '@core/context'
+import { useDisabled } from '@core/composables/disabled.composable'
 import { IK_CLOSE_MENU, IK_MENU_HORIZONTAL, IK_MENU_TELEPORTED } from '@core/utils/injection-keys.util'
 import { onClickOutside, unrefElement, whenever } from '@vueuse/core'
 import placementJs, { type Options } from 'placement.js'
@@ -20,15 +25,12 @@ defineOptions({
   inheritAttrs: false,
 })
 
-const props = withDefaults(
-  defineProps<{
-    horizontal?: boolean
-    shadow?: boolean
-    disabled?: boolean
-    placement?: Options['placement']
-  }>(),
-  { disabled: undefined }
-)
+const props = defineProps<{
+  horizontal?: boolean
+  noBorder?: boolean
+  disabled?: boolean
+  placement?: Options['placement']
+}>()
 
 const slots = useSlots()
 const isOpen = ref(false)
@@ -42,7 +44,7 @@ provide(
   computed(() => props.horizontal ?? false)
 )
 
-useContext(DisabledContext, () => props.disabled)
+useDisabled(() => props.disabled)
 
 let clearClickOutsideEvent: (() => void) | undefined
 
@@ -72,6 +74,7 @@ const open = (event: MouseEvent) => {
   nextTick(() => {
     clearClickOutsideEvent = onClickOutside(menu, () => (isOpen.value = false), {
       ignore: [event.currentTarget as HTMLElement],
+      controls: false,
     })
 
     placementJs(event.currentTarget as HTMLElement, unrefElement(menu), {
@@ -88,17 +91,17 @@ const open = (event: MouseEvent) => {
   flex-direction: column;
   padding: 0.4rem;
   cursor: default;
-  color: var(--color-grey-200);
+  color: var(--color-neutral-txt-primary);
   border-radius: 0.4rem;
-  background-color: var(--color-grey-600);
+  background-color: var(--color-neutral-background-primary);
   gap: 0.2rem;
 
   &.horizontal {
     flex-direction: row;
   }
 
-  &.shadow {
-    box-shadow: var(--shadow-300);
+  &.border {
+    border: 0.1rem solid var(--color-neutral-border);
   }
 }
 </style>

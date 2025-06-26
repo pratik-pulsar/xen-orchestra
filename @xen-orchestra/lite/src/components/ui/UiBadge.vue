@@ -1,5 +1,5 @@
 <template>
-  <span class="ui-badge typo p2-medium">
+  <span class="ui-badge typo-body-bold-small">
     <UiIcon :icon />
     <slot />
   </span>
@@ -22,8 +22,8 @@ defineProps<{
   gap: 0.4rem;
   padding: 0 0.8rem;
   height: 1.8em;
-  color: var(--color-grey-600);
+  color: var(--color-neutral-txt-primary);
   border-radius: 9.6rem;
-  background-color: var(--color-grey-300);
+  background-color: var(--color-neutral-background-disabled);
 }
 </style>

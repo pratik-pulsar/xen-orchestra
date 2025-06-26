@@ -1,20 +1,24 @@
 <template>
   <div>
     <img alt="" src="../assets/object-not-found.svg" />
-    <p class="text">{{ $t('object-not-found', { id }) }}</p>
-    <UiButton @click="router.push({ name: 'home' })">{{ $t('back-pool-dashboard') }}</UiButton>
+    <p class="text">{{ t('object-not-found', { id }) }}</p>
+    <UiButton size="medium" accent="brand" variant="primary" @click="router.push({ name: 'home' })">
+      {{ t('back-pool-dashboard') }}
+    </UiButton>
   </div>
 </template>
 
 <script setup lang="ts">
 import { usePageTitleStore } from '@/stores/page-title.store'
-import UiButton from '@core/components/button/UiButton.vue'
+import UiButton from '@core/components/ui/button/UiButton.vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 defineProps<{
   id: string
 }>()
+
+const { t } = useI18n()
 
 usePageTitleStore().setTitle(useI18n().t('not-found'))
 
@@ -36,7 +40,7 @@ img {
 }
 
 .text {
-  color: var(--color-purple-base);
+  color: var(--color-brand-txt-base);
   font-size: 36px;
   font-weight: 400;
   line-height: 150%;

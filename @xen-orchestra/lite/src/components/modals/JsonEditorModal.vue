@@ -2,16 +2,16 @@
   <UiModal :color="isJsonValid ? 'success' : 'error'" @submit.prevent="handleSubmit()">
     <FormModalLayout :icon="faCode" class="layout">
       <template #default>
-        <FormTextarea v-model="editedJson" class="modal-textarea" />
+        <UiTextarea v-model="editedJson" accent="brand" class="modal-textarea" />
       </template>
 
       <template #buttons>
-        <UiButton level="tertiary" @click="formatJson()">
-          {{ $t('reformat') }}
+        <UiButton size="medium" accent="brand" variant="tertiary" @click="formatJson()">
+          {{ t('reformat') }}
         </UiButton>
         <ModalDeclineButton />
         <ModalApproveButton :disabled="!isJsonValid">
-          {{ $t('save') }}
+          {{ t('save') }}
         </ModalApproveButton>
       </template>
     </FormModalLayout>
@@ -19,19 +19,22 @@
 </template>
 
 <script lang="ts" setup>
-import FormTextarea from '@/components/form/FormTextarea.vue'
 import FormModalLayout from '@/components/ui/modals/layouts/FormModalLayout.vue'
 import ModalApproveButton from '@/components/ui/modals/ModalApproveButton.vue'
 import ModalDeclineButton from '@/components/ui/modals/ModalDeclineButton.vue'
 import UiModal from '@/components/ui/modals/UiModal.vue'
 import { IK_MODAL } from '@/types/injection-keys'
-import UiButton from '@core/components/button/UiButton.vue'
+import UiButton from '@core/components/ui/button/UiButton.vue'
+import UiTextarea from '@core/components/ui/text-area/UiTextarea.vue'
 import { faCode } from '@fortawesome/free-solid-svg-icons'
 import { computed, inject, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 const props = defineProps<{
   initialValue?: string
 }>()
+
+const { t } = useI18n()
 
 const editedJson = ref<string>(props.initialValue ?? '')
 const modal = inject(IK_MODAL)!

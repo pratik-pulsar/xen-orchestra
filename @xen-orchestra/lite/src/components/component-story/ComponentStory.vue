@@ -3,11 +3,17 @@
     <TabItem v-bind="tab(TAB.PROPS, propParams)">Props</TabItem>
     <TabItem class="event-tab" v-bind="tab(TAB.EVENTS, eventParams)">
       Events
-      <UiCounter v-if="unreadEventsCount > 0" :value="unreadEventsCount" color="success" />
+      <UiCounter
+        v-if="unreadEventsCount > 0"
+        :value="unreadEventsCount"
+        accent="success"
+        variant="primary"
+        size="small"
+      />
     </TabItem>
     <TabItem v-bind="tab(TAB.SLOTS, slotParams)">Slots</TabItem>
     <TabItem v-bind="tab(TAB.SETTINGS, settingParams)">Settings</TabItem>
-    <MenuList placement="bottom" shadow>
+    <MenuList placement="bottom">
       <template #trigger="{ open, isOpen }">
         <TabItem :active="isOpen" :disabled="presets === undefined" class="preset-tab" @click="open">
           <UiIcon :icon="faSliders" />
@@ -35,7 +41,15 @@
         <UiCardTitle>
           Logs
           <template #right>
-            <UiButton v-if="eventsLog.length > 0" level="tertiary" @click="eventsLog = []"> Clear </UiButton>
+            <UiButton
+              v-if="eventsLog.length > 0"
+              size="medium"
+              accent="brand"
+              variant="tertiary"
+              @click="eventsLog = []"
+            >
+              Clear
+            </UiButton>
           </template>
         </UiCardTitle>
         <div class="events-log">
@@ -77,12 +91,12 @@ import {
   ModelParam,
   type Param,
 } from '@/libs/story/story-param'
-import UiButton from '@core/components/button/UiButton.vue'
 import MenuItem from '@core/components/menu/MenuItem.vue'
 import MenuList from '@core/components/menu/MenuList.vue'
 import TabItem from '@core/components/tab/TabItem.vue'
 import TabList from '@core/components/tab/TabList.vue'
-import UiCounter from '@core/components/UiCounter.vue'
+import UiButton from '@core/components/ui/button/UiButton.vue'
+import UiCounter from '@core/components/ui/counter/UiCounter.vue'
 import { faSliders } from '@fortawesome/free-solid-svg-icons'
 import 'highlight.js/styles/github-dark.css'
 import { uniqueId, upperFirst } from 'lodash-es'

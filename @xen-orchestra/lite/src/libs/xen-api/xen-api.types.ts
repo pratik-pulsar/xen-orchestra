@@ -4,6 +4,7 @@ import type {
   ALLOCATION_ALGORITHM,
   BOND_MODE,
   DOMAIN_TYPE,
+  HOST_OPERATION,
   IP_CONFIGURATION_MODE,
   IPV6_CONFIGURATION_MODE,
   NETWORK_DEFAULT_LOCKING_MODE,
@@ -43,6 +44,7 @@ import type {
   VUSB_OPERATION,
 } from '@/libs/xen-api/xen-api.enums'
 import type { XEN_API_OBJECT_TYPES } from '@/libs/xen-api/xen-api.utils'
+import type { OPAQUE_REF_NULL } from '@vates/types'
 
 type TypeMapping = typeof XEN_API_OBJECT_TYPES
 export type ObjectType = keyof TypeMapping
@@ -52,13 +54,21 @@ export type RawTypeToType<RawType extends RawObjectType> = Lowercase<RawType>
 export type TypeToRawType<Type extends ObjectType> = TypeMapping[Type]
 
 type ObjectTypeToRecordMapping = {
+  bond: XenApiBond
   console: XenApiConsole
   host: XenApiHost
   host_metrics: XenApiHostMetrics
   message: XenApiMessage<any>
   network: XenApiNetwork
+  pbd: XenApiPbd
+  pci: XenApiPci
+  pgpu: XenApiPgpu
+  pif: XenApiPif
+  pif_metrics: XenApiPifMetrics
   pool: XenApiPool
   sr: XenApiSr
+  vdi: XenApiVdi
+  vif: XenApiVif
   vm: XenApiVm
   vm_guest_metrics: XenApiVmGuestMetrics
   vm_metrics: XenApiVmMetrics
@@ -96,31 +106,80 @@ export type RawXenApiRecord<T extends XenApiRecord<ObjectType>> = Omit<T, '$ref'
 
 export interface XenApiPool extends XenApiRecord<'pool'> {
   cpu_info: {
+    socket_count: string
     cpu_count: string
   }
   master: XenApiHost['$ref']
   name_label: string
   other_config: Record<string, string>
+  // TODO add | OPAQUE_REF_NULL, warning with newVm
+  default_SR: XenApiSr['$ref']
+  tags: Array<string>
+  name_description: string
+  ha_enabled: string
+  migration_compression?: boolean
+  suspend_image_SR: XenApiSr['$ref'] | OPAQUE_REF_NULL
+  crash_dump_SR: XenApiSr['$ref'] | OPAQUE_REF_NULL
+  ha_statefiles: Array<XenApiVdi['$ref']>
 }
 
 export interface XenApiHost extends XenApiRecord<'host'> {
   address: string
   name_label: string
+  name_description: string
   metrics: XenApiHostMetrics['$ref']
   resident_VMs: XenApiVm['$ref'][]
-  cpu_info: { cpu_count: string }
-  software_version: { product_version: string }
+  software_version: {
+    build_number: string
+    date: string
+    db_schema: string
+    dbv: string
+    hostname: string
+    linux: string
+    network_backend: string
+    platform_name: string
+    platform_version: string
+    product_brand: string
+    product_version: string
+    product_version_text: string
+    product_version_text_short: string
+    xapi: string
+    xen: string
+    xencenter_max: string
+    xencenter_min: string
+  }
+  cpu_info: { cpu_count: string; socket_count: string; modelname: string }
+  control_domain: XenApiVm['$ref']
+  current_operations: Record<string, HOST_OPERATION>
+  other_config: Record<string, any>
+  tags: string[]
+  bios_strings: Record<string, any>
+  iscsi_iqn: string
+  logging: { syslog_destination: string }
+  power_on_mode: string
+  multipathing: boolean
+  enabled: boolean
+  PGPUs: XenApiPgpu['$ref'][]
 }
 
 export interface XenApiSr extends XenApiRecord<'sr'> {
   content_type: string
   name_label: string
+  VDIs: XenApiVdi['$ref'][]
+  PBDs: XenApiPbd['$ref'][]
   physical_size: number
   physical_utilisation: number
   shared: boolean
+  type: string
   sm_config: {
     type?: string
   }
+}
+
+export interface XenApiPbd extends XenApiRecord<'pbd'> {
+  SR: XenApiSr['$ref']
+  currently_attached: boolean
+  host: XenApiHost['$ref']
 }
 
 export interface XenApiVm extends XenApiRecord<'vm'> {
@@ -158,7 +217,7 @@ export interface XenApiVm extends XenApiRecord<'vm'> {
   consoles: XenApiConsole['$ref'][]
   crash_dumps: XenApiCrashdump['$ref'][]
   current_operations: Record<string, VM_OPERATION>
-  domain_type: DOMAIN_TYPE
+  domain_type?: DOMAIN_TYPE
   domarch: string
   domid: number
   generation_id: string
@@ -369,9 +428,38 @@ export interface XenApiHostMetrics extends XenApiRecord<'host_metrics'> {
 
 export interface XenApiVmMetrics extends XenApiRecord<'vm_metrics'> {
   VCPUs_number: number
+  start_time: string | undefined
+  install_time: string
 }
 
-export type XenApiVmGuestMetrics = XenApiRecord<'vm_guest_metrics'>
+export const TRISTATE_TYPE = {
+  NO: 'no',
+  UNSPECIFIED: 'unspecified',
+  YES: 'yes',
+} as const
+
+export type TRISTATE_TYPE = (typeof TRISTATE_TYPE)[keyof typeof TRISTATE_TYPE]
+
+export interface XenApiVmGuestMetrics extends XenApiRecord<'vm_guest_metrics'> {
+  $ref: RecordRef<'vm_guest_metrics'>
+  can_use_hotplug_vbd: TRISTATE_TYPE
+  can_use_hotplug_vif: TRISTATE_TYPE
+  /** @deprecated */
+  disks?: Record<string, string>
+  last_updated: string
+  live: boolean
+  /** @deprecated */
+  memory?: Record<string, string>
+  networks: Record<string, string>
+  os_version: Record<string, string>
+  other_config: Record<string, string>
+  other: Record<string, string>
+  PV_drivers_detected: boolean
+  /** @deprecated */
+  PV_drivers_up_to_date?: boolean
+  PV_drivers_version: Record<string, string>
+  uuid: RecordUuid<'vm_guest_metrics'>
+}
 
 export interface XenApiTask extends XenApiRecord<'task'> {
   name_label: string
@@ -623,7 +711,10 @@ export interface XenApiBond extends XenApiRecord<'bond'> {
   slaves: XenApiPif['$ref'][]
 }
 
-export type XenApiEvent<RelationType extends ObjectType, XRecord extends ObjectTypeToRecord<RelationType>> = {
+export type XenApiEvent<
+  RelationType extends ObjectType = ObjectType,
+  XRecord extends ObjectTypeToRecord<RelationType> = ObjectTypeToRecord<RelationType>,
+> = {
   id: string
   class: RelationType
   operation: 'add' | 'mod' | 'del'
@@ -634,5 +725,7 @@ export type XenApiEvent<RelationType extends ObjectType, XRecord extends ObjectT
 export interface XenApiError extends Error {
   data?: any
 }
+
+export type XenApiStats = Record<string, number[]>
 
 /* eslint-enable no-use-before-define */

@@ -1,12 +1,12 @@
 <template>
   <UiCard class="linear-chart" :color="hasError ? 'error' : undefined">
-    <UiCardTitle>{{ $t('network-throughput') }}</UiCardTitle>
+    <UiCardTitle>{{ t('network-throughput') }}</UiCardTitle>
     <UiCardTitle :level="UiCardTitleLevel.Subtitle">
-      {{ $t('last-week') }}
+      {{ t('last-week') }}
     </UiCardTitle>
     <NoDataError v-if="hasError" />
     <UiCardSpinner v-else-if="isLoading" />
-    <LinearChart v-else :data :max-value="customMaxValue" :value-formatter="customValueFormatter" />
+    <VtsLinearChart v-else :data :max-value="customMaxValue" :value-formatter="customValueFormatter" />
   </UiCard>
 </template>
 
@@ -16,19 +16,18 @@ import UiCard from '@/components/ui/UiCard.vue'
 import UiCardSpinner from '@/components/ui/UiCardSpinner.vue'
 import UiCardTitle from '@/components/ui/UiCardTitle.vue'
 import { formatSize } from '@/libs/utils'
-import { RRD_STEP_FROM_STRING } from '@/libs/xapi-stats'
 import type { HostStats } from '@/libs/xapi-stats'
+import { RRD_STEP_FROM_STRING } from '@/libs/xapi-stats'
 import { useHostStore } from '@/stores/xen-api/host.store'
-import type { LinearChartData } from '@/types/chart'
 import { UiCardTitleLevel } from '@/types/enums'
 import { IK_HOST_LAST_WEEK_STATS } from '@/types/injection-keys'
-import { map } from 'lodash-es'
+import type { LinearChartData } from '@core/types/chart'
 import { computed, defineAsyncComponent, inject } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
 
-const LinearChart = defineAsyncComponent(() => import('@/components/charts/LinearChart.vue'))
+const VtsLinearChart = defineAsyncComponent(() => import('@core/components/linear-chart/VtsLinearChart.vue'))
 
 const hostLastWeekStats = inject(IK_HOST_LAST_WEEK_STATS)
 const { hasError, isFetching } = useHostStore().subscribe()
@@ -100,11 +99,27 @@ const isStatFetched = computed(() => {
 
 const isLoading = computed(() => isFetching.value || !isStatFetched.value)
 
-// TODO: improve the way to get the max value of graph
-// See: https://github.com/vatesfr/xen-orchestra/pull/6610/files#r1072237279
-const customMaxValue = computed(
-  () => Math.max(...map(data.value[0].data, 'value'), ...map(data.value[1].data, 'value')) * 1.5
-)
+const customMaxValue = computed(() => {
+  const values = data.value.reduce(
+    (acc, series) => [...acc, ...series.data.map(item => item.value ?? 0)],
 
-const customValueFormatter = (value: number) => String(formatSize(value))
+    [] as number[]
+  )
+
+  if (values.length === 0) {
+    return 100
+  }
+
+  const maxUsage = Math.max(...values) * 1.2
+
+  return Math.ceil(maxUsage / 100) * 100
+})
+
+const customValueFormatter = (value: number | null) => {
+  if (value === null) {
+    return ''
+  }
+
+  return formatSize(value)
+}
 </script>

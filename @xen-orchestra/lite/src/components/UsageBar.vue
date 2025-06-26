@@ -10,7 +10,7 @@
       class="progress-item"
     >
       <UiProgressBar :value="item.value" color="custom" />
-      <UiProgressLegend :label="item.label" :value="item.badgeLabel ?? $n(item.value / 100, 'percent')" />
+      <UiProgressLegend :label="item.label" :value="item.badgeLabel ?? n(item.value / 100, 'percent')" />
     </div>
     <slot :total-percent="computedData.totalPercentUsage" name="footer" />
   </div>
@@ -21,6 +21,7 @@ import UiProgressBar from '@/components/ui/progress/UiProgressBar.vue'
 import UiProgressLegend from '@/components/ui/progress/UiProgressLegend.vue'
 import type { StatData } from '@/types/stat'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 interface Props {
   data: StatData[]
@@ -28,6 +29,8 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+
+const { n } = useI18n()
 
 const MIN_WARNING_VALUE = 80
 const MIN_DANGEROUS_VALUE = 90
@@ -60,28 +63,28 @@ const computedData = computed(() => {
 }
 
 .progress-item:nth-child(1) {
-  --progress-bar-color: var(--color-purple-d60);
+  --progress-bar-color: var(--color-brand-txt-item);
 }
 
 .progress-item:nth-child(2) {
-  --progress-bar-color: var(--color-purple-d40);
+  --progress-bar-color: var(--color-brand-txt-active);
 }
 
 .progress-item:nth-child(3) {
-  --progress-bar-color: var(--color-purple-d20);
+  --progress-bar-color: var(--color-brand-txt-hover);
 }
 
 .progress-item {
   --progress-bar-height: 1.2rem;
-  --progress-bar-color: var(--color-purple-l20);
-  --progress-bar-background-color: var(--color-grey-500);
+  --progress-bar-color: var(--color-brand-item-hover);
+  --progress-bar-background-color: var(--color-neutral-background-disabled);
 
   &.warning {
-    --progress-bar-color: var(--color-orange-base);
+    --progress-bar-color: var(--color-warning-item-base);
   }
 
   &.error {
-    --progress-bar-color: var(--color-red-base);
+    --progress-bar-color: var(--color-danger-item-base);
   }
 }
 </style>

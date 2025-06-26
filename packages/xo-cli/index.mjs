@@ -9,15 +9,12 @@ import fromCallback from 'promise-toolbox/fromCallback'
 import getKeys from 'lodash/keys.js'
 import getopts from 'getopts'
 import hrp from 'http-request-plus'
-import humanFormat from 'human-format'
 import identity from 'lodash/identity.js'
 import isObject from 'lodash/isObject.js'
 import micromatch from 'micromatch'
 import os from 'os'
 import pairs from 'lodash/toPairs.js'
 import pick from 'lodash/pick.js'
-import prettyMs from 'pretty-ms'
-import progressStream from 'progress-stream'
 import pw from 'pw'
 import XoLib from 'xo-lib'
 
@@ -26,6 +23,7 @@ import XoLib from 'xo-lib'
 import * as config from './config.mjs'
 import { inspect } from 'util'
 import { rest } from './rest.mjs'
+import { streamStatsPrinter } from './_streamStatsPrinter.mjs'
 
 const Xo = XoLib.default
 
@@ -214,29 +212,6 @@ function parseParameters(args) {
   return params
 }
 
-const humanFormatOpts = {
-  unit: 'B',
-  scale: 'binary',
-}
-
-function printProgress(progress) {
-  if (progress.length) {
-    console.warn(
-      '%s% of %s @ %s/s - ETA %s',
-      Math.round(progress.percentage),
-      humanFormat(progress.length, humanFormatOpts),
-      humanFormat(progress.speed, humanFormatOpts),
-      prettyMs(progress.eta * 1e3)
-    )
-  } else {
-    console.warn(
-      '%s @ %s/s',
-      humanFormat(progress.transferred, humanFormatOpts),
-      humanFormat(progress.speed, humanFormatOpts)
-    )
-  }
-}
-
 function wrap(val) {
   return function wrappedValue() {
     return val
@@ -330,7 +305,7 @@ const help = wrap(
     filter=<filter>
       List only objects that match the filter
 
-      Syntax: https://xen-orchestra.com/docs/manage_infrastructure.html#filter-syntax
+      Syntax: https://docs.xen-orchestra.com/manage_infrastructure#filter-syntax
 
     limit=<limit>
       Maximum number of objects to list, e.g. \`limit=10\`
@@ -398,6 +373,12 @@ const help = wrap(
 
     Examples:
       $name rest put vms/<vm id>/tags/<tag>
+
+  $name watch [--ndjson]
+    Watch and display notifications received from the XO instance
+
+    --ndjson
+      Prints the result in newline-delimited JSON format
 
 $name v$version`.replace(/<([^>]+)>|\$(\w+)/g, function (_, arg, key) {
       if (arg) {
@@ -645,6 +626,7 @@ async function call(args) {
     const baseUrl = xo._url.replace(/^ws/, 'http')
     const httpOptions = {
       rejectUnauthorized: !(await getServerConfig()).allowUnauthorized,
+      timeout: 0,
     }
 
     const result = await xo.call(method, params)
@@ -658,15 +640,7 @@ async function call(args) {
         const output = createOutputStream(file)
         const response = await hrp(url, httpOptions)
 
-        const progress = progressStream(
-          {
-            length: response.headers['content-length'],
-            time: 1e3,
-          },
-          printProgress
-        )
-
-        return fromCallback(pipeline, response, progress, output)
+        return fromCallback(pipeline, response, streamStatsPrinter(response.headers['content-length']), output)
       }
 
       if (key === '$sendTo') {
@@ -674,17 +648,7 @@ async function call(args) {
         url = new URL(result[key], baseUrl)
 
         const length = file === '-' ? undefined : (await stat(file)).size
-        const input = pipeline(
-          file === '-' ? process.stdin : createReadStream(file),
-          progressStream(
-            {
-              length,
-              time: 1e3,
-            },
-            printProgress
-          ),
-          noop
-        )
+        const input = pipeline(file === '-' ? process.stdin : createReadStream(file), streamStatsPrinter(length), noop)
 
         const response = await hrp(url, {
           ...httpOptions,
@@ -704,6 +668,50 @@ async function call(args) {
   }
 }
 COMMANDS.call = call
+
+COMMANDS.watch = async function (args) {
+  const xo = await connect()
+
+  const { stdout } = process
+
+  let printNotification
+  if (args.length !== 0 && args[0] === '--ndjson') {
+    printNotification = ({ method, params }) => {
+      stdout.write(JSON.stringify({ method, params }) + '\n')
+    }
+  } else {
+    const opts = {
+      colors: Boolean(stdout.isTTY),
+      depth: null,
+      sorted: true,
+    }
+
+    printNotification = ({ method, params }) => {
+      stdout.write(method + ' ' + inspect(params, opts) + '\n\n')
+    }
+  }
+
+  const counts = new Map()
+  xo.on('notification', notification => {
+    const { method } = notification
+    counts.set(method, 1 + (counts.get(method) ?? 0))
+    printNotification(notification)
+  })
+
+  return new Promise(resolve => {
+    process.once('SIGINT', () => {
+      const { stderr } = process
+      stderr.write('\nNumber of notifications per method:\n')
+
+      const sortedCounts = Array.from(counts).sort(([, a], [, b]) => b - a)
+      for (const [method, count] of sortedCounts) {
+        stderr.write(`  ${method}: ${count}\n`)
+      }
+
+      resolve(xo.close().then(noop))
+    })
+  })
+}
 
 // ===================================================================
 

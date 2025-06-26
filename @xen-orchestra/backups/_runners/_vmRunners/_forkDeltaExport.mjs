@@ -1,11 +1,16 @@
+import { SynchronizedDisk } from '@xen-orchestra/disk-transform'
 import cloneDeep from 'lodash/cloneDeep.js'
-import mapValues from 'lodash/mapValues.js'
 
-import { forkStreamUnpipe } from '../_forkStreamUnpipe.mjs'
-
-export function forkDeltaExport(deltaExport) {
-  const { streams, ...rest } = deltaExport
-  const newMetadata = cloneDeep(rest)
-  newMetadata.streams = mapValues(streams, forkStreamUnpipe)
-  return newMetadata
+export function forkDeltaExport(deltaExport, label) {
+  label += ' ' + Math.random()
+  const { disks, ...rest } = deltaExport
+  const fork = cloneDeep(rest)
+  fork.disks = {}
+  for (const [key, disk] of Object.entries(disks)) {
+    if (!(disk instanceof SynchronizedDisk)) {
+      throw new Error('Can only fork synchronized disks ')
+    }
+    fork.disks[key] = disk.fork(label)
+  }
+  return fork
 }

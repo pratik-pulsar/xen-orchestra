@@ -1,12 +1,12 @@
 <template>
   <UiCard :color="hasError ? 'error' : undefined" class="linear-chart">
-    <UiCardTitle>{{ $t('pool-cpu-usage') }}</UiCardTitle>
+    <UiCardTitle>{{ t('pool-cpu-usage') }}</UiCardTitle>
     <UiCardTitle :level="UiCardTitleLevel.Subtitle">
-      {{ $t('last-week') }}
+      {{ t('last-week') }}
     </UiCardTitle>
     <NoDataError v-if="hasError" />
     <UiCardSpinner v-else-if="isLoading" />
-    <LinearChart v-else :data :max-value="customMaxValue" :value-formatter="customValueFormatter" />
+    <VtsLinearChart v-else :data :max-value="customMaxValue" :value-formatter="customValueFormatter" />
   </UiCard>
 </template>
 
@@ -18,14 +18,14 @@ import UiCardTitle from '@/components/ui/UiCardTitle.vue'
 import type { HostStats } from '@/libs/xapi-stats'
 import { RRD_STEP_FROM_STRING } from '@/libs/xapi-stats'
 import { useHostStore } from '@/stores/xen-api/host.store'
-import type { LinearChartData, ValueFormatter } from '@/types/chart'
 import { UiCardTitleLevel } from '@/types/enums'
 import { IK_HOST_LAST_WEEK_STATS } from '@/types/injection-keys'
+import type { LinearChartData, ValueFormatter } from '@core/types/chart'
 import { sumBy } from 'lodash-es'
 import { computed, defineAsyncComponent, inject } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-const LinearChart = defineAsyncComponent(() => import('@/components/charts/LinearChart.vue'))
+const VtsLinearChart = defineAsyncComponent(() => import('@core/components/linear-chart/VtsLinearChart.vue'))
 
 const { t, n } = useI18n()
 
@@ -88,5 +88,11 @@ const isStatFetched = computed(() => {
 
 const isLoading = computed(() => isFetching.value || !isStatFetched.value)
 
-const customValueFormatter: ValueFormatter = value => n(value / 100, 'percent')
+const customValueFormatter: ValueFormatter = value => {
+  if (value === null) {
+    return ''
+  }
+
+  return n(value / 100, 'percent')
+}
 </script>

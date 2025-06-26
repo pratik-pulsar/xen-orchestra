@@ -374,7 +374,7 @@ class NoObjectsWithoutServers extends Component {
               <Row>
                 <Col mediumSize={6}>
                   <a
-                    href='https://xen-orchestra.com/docs/'
+                    href='https://docs.xen-orchestra.com/'
                     rel='noopener noreferrer'
                     target='_blank'
                     className='btn btn-link'
@@ -480,12 +480,24 @@ const NoObjects = props =>
     createGetObjectsOfType('VM'),
     createGetObjectsOfType('VBD'),
     createGetObjectsOfType('VDI'),
-    (containers, vms, vbds, vdis) =>
+    createGetObjectsOfType('VIF'),
+    (containers, vms, vbds, vdis, vifs) =>
       mapValues(vms, vm =>
         // ComplexMatcher works on own enumerable properties, therefore the
         // injected properties should be non-enumerable
         Object.defineProperties(
-          { ...vm },
+          {
+            ...vm,
+
+            MACs: vm.VIFs.reduce((acc, vifId) => {
+              const vif = vifs[vifId]
+              if (vif !== undefined) {
+                acc.push(vif.MAC)
+              }
+              return acc
+            }, []),
+            vulnerable: Object.values(vm.vulnerabilities).filter(Boolean).length > 0,
+          },
           {
             container: { value: containers[vm.$container || vm.$pool] },
             vdisUsage: { value: sumBy(compact(map(vm.$VBDs, vbdId => get(() => vdis[vbds[vbdId].VDI]))), 'usage') },

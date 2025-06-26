@@ -2,24 +2,32 @@
   <TitleBar :icon="faDisplay">
     {{ name }}
     <template #actions>
-      <MenuList v-if="vm !== undefined" placement="bottom-end" shadow>
+      <MenuList v-if="vm !== undefined" placement="bottom-end">
         <template #trigger="{ open, isOpen }">
-          <UiButton :class="{ pressed: isOpen }" :left-icon="faPowerOff" @click="open">
-            {{ $t('change-state') }}
+          <UiButton
+            size="medium"
+            accent="brand"
+            variant="primary"
+            :class="{ pressed: isOpen }"
+            :left-icon="faPowerOff"
+            @click="open"
+          >
+            {{ t('change-state') }}
             <UiIcon :icon="faAngleDown" />
           </UiButton>
         </template>
         <VmActionPowerStateItems :vm-refs="[vm.$ref]" />
       </MenuList>
-      <MenuList v-if="vm !== undefined" placement="bottom-end" shadow>
+      <MenuList v-if="vm !== undefined" placement="bottom-end">
         <template #trigger="{ open, isOpen }">
-          <ButtonIcon
+          <UiButtonIcon
             v-tooltip="{
               placement: 'left',
-              content: $t('more-actions'),
+              content: t('more-actions'),
             }"
-            :class="{ active: isOpen }"
+            :selected="isOpen"
             :icon="faEllipsisVertical"
+            accent="brand"
             class="more-actions-button"
             size="large"
             @click="open"
@@ -44,13 +52,16 @@ import VmActionPowerStateItems from '@/components/vm/VmActionItems/VmActionPower
 import VmActionSnapshotItem from '@/components/vm/VmActionItems/VmActionSnapshotItem.vue'
 import type { XenApiVm } from '@/libs/xen-api/xen-api.types'
 import { useVmStore } from '@/stores/xen-api/vm.store'
-import ButtonIcon from '@core/components/button/ButtonIcon.vue'
-import UiButton from '@core/components/button/UiButton.vue'
 import MenuList from '@core/components/menu/MenuList.vue'
+import UiButton from '@core/components/ui/button/UiButton.vue'
+import UiButtonIcon from '@core/components/ui/button-icon/UiButtonIcon.vue'
 import { vTooltip } from '@core/directives/tooltip.directive'
 import { faAngleDown, faDisplay, faEllipsisVertical, faPowerOff } from '@fortawesome/free-solid-svg-icons'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
+
+const { t } = useI18n()
 
 const { getByUuid: getVmByUuid } = useVmStore().subscribe()
 const { currentRoute } = useRouter()

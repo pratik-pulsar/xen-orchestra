@@ -3,10 +3,13 @@ import find from 'lodash/find.js'
 import gte from 'lodash/gte.js'
 import includes from 'lodash/includes.js'
 import isEmpty from 'lodash/isEmpty.js'
+import keyBy from 'lodash/keyBy.js'
 import lte from 'lodash/lte.js'
-import mapToArray from 'lodash/map.js'
+import forEach from 'lodash/forEach.js'
 import mapValues from 'lodash/mapValues.js'
 import noop from 'lodash/noop.js'
+import { asyncMap } from '@xen-orchestra/async-map'
+import { createLogger } from '@xen-orchestra/log'
 import { decorateObject } from '@vates/decorate-with'
 import { defer as deferrable } from 'golike-defer'
 import { ignoreErrors, pCatch } from 'promise-toolbox'
@@ -16,7 +19,9 @@ import { parseSize } from '../../utils.mjs'
 
 import { isVmHvm, isVmRunning, makeEditObject } from '../utils.mjs'
 
-// According to: https://xenserver.org/blog/entry/vga-over-cirrus-in-xenserver-6-2.html.
+const log = createLogger('xo:server:xapi:vm')
+
+// According to: https://xenserver.org/blog/entry/vga-over-cirrus-in-xenserver-6-2.html (dead link).
 const XEN_VGA_VALUES = ['std', 'cirrus']
 const XEN_VIDEORAM_VALUES = [1, 2, 4, 8, 16]
 
@@ -46,7 +51,8 @@ const methods = {
       ...props
     } = {},
     checkLimits,
-    creatorId
+    creatorId,
+    { destroyAllVifs = false } = {}
   ) {
     const installMethod = (() => {
       if (installRepository == null) {
@@ -126,7 +132,7 @@ const methods = {
       }
     }
 
-    let hasBootableDisk = !!find(vm.$VBDs, 'bootable')
+    let hasBootableDisk = false
 
     // Inserts the CD if necessary.
     if (installMethod === 'cd') {
@@ -138,79 +144,168 @@ const methods = {
       hasBootableDisk = true
     }
 
-    // Modify existing (previous template) disks if necessary
-    existingVdis &&
-      (await Promise.all(
-        mapToArray(existingVdis, async ({ size, $SR: srId, ...properties }, userdevice) => {
-          const vbd = find(vm.$VBDs, { userdevice })
-          if (!vbd) {
+    // Compatibility with legacy code
+    if (existingVdis !== undefined) {
+      if (vdis === undefined) {
+        vdis = []
+      }
+
+      forEach(existingVdis, ({ $SR: sr, ...properties }, userdevice) => {
+        const vbd = find(vm.$VBDs, { userdevice })
+        if (!vbd) {
+          return
+        }
+
+        vdis.push({ ...properties, userdevice, sr })
+      })
+    }
+    // End compatibility with legacy code
+
+    if (vdis !== undefined && vdis.length > 0) {
+      const _vdisToCreate = []
+      const _vdisToUpdate = []
+      const _vdisToDestroy = []
+
+      vdis.forEach(({ destroy, ...vdi }) => {
+        const { userdevice } = vdi
+
+        if (userdevice === undefined) {
+          _vdisToCreate.push(vdi)
+          return
+        }
+
+        // If the userdevice match no vbd, create the VDI
+        const vbd = find(vm.$VBDs, { userdevice })
+        if (vbd === undefined) {
+          if (destroy) {
+            log.warn('VDI ignored because it is marked as "destroy"', vdi)
             return
           }
-          let vdi = vbd.$VDI
-          await this._setObjectProperties(vdi, properties)
 
+          _vdisToCreate.push(vdi)
+          return
+        }
+
+        if (vbd.VDI === Ref.EMPTY) {
+          throw new Error(`VBD with userdevice: ${userdevice} exist but has no VDI`)
+        }
+
+        vdi.$ref = this.getObject(vbd.VDI).$ref
+        if (destroy) {
+          _vdisToDestroy.push(vdi)
+          return
+        }
+
+        _vdisToUpdate.push(vdi)
+      })
+
+      await Promise.all(_vdisToDestroy.map(vdi => this.VDI_destroy(vdi.$ref)))
+
+      // Some VBDs may be destroyed with the VDI_destroy. We need to get a fresh VBDs list
+      const vbdRefs = await this.getField('VM', vmRef, 'VBDs')
+      const vbds = await asyncMap(vbdRefs, vbdRef => this._getOrWaitObject(vbdRef))
+
+      if (!hasBootableDisk) {
+        hasBootableDisk = vbds.some(vbd => vbd.bootable)
+      }
+
+      // TODO: set vm.suspend_SR
+      // Creates the user defined VDIs.
+      for (const [i, vdi] of _vdisToCreate.entries()) {
+        const vdiRef = await this.VDI_create({
+          name_description: vdi.name_description,
+          name_label: vdi.name_label,
+          virtual_size: vdi.size,
+          SR: this.getObject(vdi.sr, 'SR').$ref,
+        })
+        $defer.onFailure(() => this.VDI_destroy(vdiRef))
+
+        // Either the CD or the 1st disk is bootable (only useful for PV VMs)
+        await this.VBD_create({
+          bootable: !hasBootableDisk && i === 0,
+          userdevice: vdi.userdevice,
+          VDI: vdiRef,
+          VM: vm.$ref,
+        })
+      }
+
+      // Modify existing (previous template) disks if necessary
+      // Wait until all VDIs are created; otherwise, VBD_create may throw an OTHER_OPERATION_IN_PROGRESS error
+      // in case a VDI is migrating
+      await Promise.all(
+        _vdisToUpdate.map(async ({ $ref, sr, size, userdevice, ...properties }) => {
+          await this._setObjectProperties({ $ref, $type: 'VDI' }, properties)
+
+          let _vdi = this.getObject($ref)
           // if another SR is set, move it there
-          if (srId) {
-            vdi = await this.moveVdi(vdi.$id, srId)
+          if (sr !== undefined) {
+            _vdi = await this.moveVdi(_vdi.$id, sr)
           }
 
-          // if the disk is bigger
-          if (size != null && size > vdi.virtual_size) {
-            await this.resizeVdi(vdi.$id, size)
+          // update VDI size if is bigger
+          if (size != null) {
+            if (size < _vdi.virtual_size) {
+              throw new Error(
+                `Unable to update to a smaller VDI size for VDI with PBD userdevice: ${userdevice}. Current size: ${_vdi.virtual_size}, new size: ${size}`
+              )
+            }
+            await this.resizeVdi(_vdi.$id, size)
           }
         })
-      ))
-
-    // Creates the user defined VDIs.
-    //
-    // TODO: set vm.suspend_SR
-    if (!isEmpty(vdis)) {
-      const devices = await this.call('VM.get_allowed_VBD_devices', vm.$ref)
-      await Promise.all(
-        mapToArray(vdis, (vdiDescription, i) =>
-          this.VDI_create({
-            name_description: vdiDescription.name_description,
-            name_label: vdiDescription.name_label,
-            virtual_size: vdiDescription.size,
-            SR: this.getObject(vdiDescription.sr || vdiDescription.SR, 'SR').$ref,
-          }).then(vdiRef =>
-            this.VBD_create({
-              // Either the CD or the 1st disk is bootable (only useful for PV VMs)
-              bootable: !(hasBootableDisk || i),
-
-              userdevice: devices[i],
-              VDI: vdiRef,
-              VM: vm.$ref,
-            })
-          )
-        )
       )
     }
 
-    // Destroys the VIFs cloned from the template.
-    await Promise.all(vm.$VIFs.map(vif => this._deleteVif(vif)))
+    if (destroyAllVifs) {
+      // Destroys the VIFs cloned from the template.
+      await Promise.all(vm.$VIFs.map(vif => this._deleteVif(vif)))
+    }
 
     // Creates the VIFs specified by the user.
     if (vifs) {
       const devices = await this.call('VM.get_allowed_VIF_devices', vm.$ref)
-      await Promise.all(
-        mapToArray(vifs, (vif, index) =>
-          this.VIF_create(
-            {
-              ipv4_allowed: vif.ipv4_allowed,
-              ipv6_allowed: vif.ipv6_allowed,
-              device: devices[index],
-              locking_mode: isEmpty(vif.ipv4_allowed) && isEmpty(vif.ipv6_allowed) ? 'network_default' : 'locked',
-              MTU: vif.mtu,
-              network: this.getObject(vif.network).$ref,
-              VM: vm.$ref,
-            },
-            {
-              MAC: vif.mac,
-            }
-          )
+      const _vifsToCreate = []
+      const _vifsToDestroy = []
+      const vmVifByDevice = keyBy(vm.$VIFs, 'device')
+
+      vifs.forEach(vif => {
+        if (vif.device === undefined) {
+          vif.device = devices.shift()
+          _vifsToCreate.push(vif)
+          return
+        }
+
+        const vmVif = vmVifByDevice[vif.device]
+        if (vif.destroy) {
+          if (vmVif !== undefined) {
+            _vifsToDestroy.push(vmVif)
+          }
+          return
+        }
+
+        if (vmVif !== undefined) {
+          _vifsToDestroy.push(vmVif)
+        }
+        _vifsToCreate.push(vif)
+      })
+
+      await Promise.all(_vifsToDestroy.map(vif => this._deleteVif(vif)))
+
+      for (const vif of _vifsToCreate) {
+        await this.VIF_create(
+          {
+            ipv4_allowed: vif.ipv4_allowed,
+            ipv6_allowed: vif.ipv6_allowed,
+            device: vif.device,
+            locking_mode: isEmpty(vif.ipv4_allowed) && isEmpty(vif.ipv6_allowed) ? 'network_default' : 'locked',
+            MTU: vif.mtu,
+            network: this.getObject(vif.network).$ref,
+            VM: vm.$ref,
+          },
+          {
+            MAC: vif.mac,
+          }
         )
-      )
+      }
     }
 
     if (vgpuType !== undefined && gpuGroup !== undefined) {
@@ -393,8 +488,13 @@ const methods = {
 
     hasVendorDevice: true,
 
+    // for XCP 8.3+ use nestedVirt instead
     expNestedHvm: {
       set: (expNestedHvm, vm) => vm.update_platform('exp-nested-hvm', expNestedHvm ? 'true' : null),
+    },
+
+    nestedVirt: {
+      set: (nestedVirt, vm) => vm.update_platform('nested-virt', nestedVirt ? 'true' : null),
     },
 
     nicType: {

@@ -135,6 +135,7 @@ connect()
 
 const _signIn = new Promise(resolve => xo.once('authenticated', resolve))
 
+// eslint-disable-next-line n/no-unsupported-features/node-builtins
 const _call = new URLSearchParams(window.location.search.slice(1)).has('debug')
   ? async (method, params) => {
       await _signIn
@@ -142,7 +143,7 @@ const _call = new URLSearchParams(window.location.search.slice(1)).has('debug')
       return tap.call(
         xo.call(method, params),
         result => {
-          // eslint-disable-next-line no-console
+          // eslint-disable-next-line no-console, n/no-unsupported-features/node-builtins
           console.debug('API call (%d ms)', Date.now() - now, method, params, result)
         },
         error => {
@@ -732,7 +733,6 @@ subscribeXostorInterfaces.forceRefresh = sr => {
   subscription?.forceRefresh()
 }
 
-
 const subscribeHostsIpmiSensors = {}
 export const subscribeIpmiSensors = host => {
   const _isAdmin = isAdmin(store.getState())
@@ -754,6 +754,19 @@ export const subscribeIpmiSensors = host => {
 
   return subscribeHostsIpmiSensors[hostId]
 }
+
+const subscribeHostsMdadmHealth = {}
+export const subscribeMdadmHealth = host => {
+  const hostId = resolveId(host)
+
+  if (subscribeHostsMdadmHealth[hostId] === undefined) {
+    subscribeHostsMdadmHealth[hostId] = createSubscription(() => _call('host.getMdadmHealth', { id: hostId }))
+  }
+
+  return subscribeHostsMdadmHealth[hostId]
+}
+
+export const getHostBiosInfo = host => _call('host.getBiosInfo', { id: resolveId(host) })
 
 const subscribeVmSecurebootReadiness = {}
 export const subscribeSecurebootReadiness = id => {
@@ -1314,7 +1327,39 @@ export const toggleMaintenanceMode = async host => {
       return
     }
   }
-  return _call('host.setMaintenanceMode', { id: resolveId(host), maintenance: host.enabled })
+  return _call('host.setMaintenanceMode', { id: resolveId(host), maintenance: host.enabled }).catch(async err => {
+    if (err.message === 'operation blocked') {
+      const residentVmsIds = host.residentVms
+      const vms = residentVmsIds
+        .map(vmId => getObject(store.getState(), vmId))
+        .filter(
+          vm =>
+            vm.type === 'VM' &&
+            vm.power_state === 'Running' &&
+            vm?.blockedOperations &&
+            Object.keys(vm.blockedOperations).length > 0
+        )
+      const vmsToForceMigrate = vms.map(vm => vm.id)
+      confirm({
+        title: _('bypassBlockedMigrationsModalTitle'),
+        body: _('bypassBlockedMigrationsModalMessage', {
+          vms: (
+            <ul>
+              {vms.map(vm => (
+                <li key={vm.id}>
+                  <Vm id={vm.id} />
+                </li>
+              ))}
+            </ul>
+          ),
+        }),
+      }).then(() =>
+        _call('host.setMaintenanceMode', { id: resolveId(host), maintenance: host.enabled, vmsToForceMigrate })
+      )
+      return
+    }
+    throw err
+  })
 }
 
 export const getHostMissingPatches = async host => {
@@ -1373,6 +1418,14 @@ export const installCertificateOnHost = (id, props) => _call('host.installCertif
 
 export const setControlDomainMemory = (id, memory) => _call('host.setControlDomainMemory', { id, memory })
 
+export const isPubKeyTooShort = host => {
+  // this check is only relevant for old hosts, and cannot be done on offline hosts
+  if (host.productBrand !== 'XCP-ng' || semver.satisfies(host.version, '>=8.3.0') || host.power_state === 'Halted') {
+    return Promise.resolve(false)
+  }
+  return _call('host.isPubKeyTooShort', { id: host.id })
+}
+
 // for XCP-ng now
 export const installAllPatchesOnHost = ({ host }) =>
   confirm({
@@ -1409,19 +1462,20 @@ export const installAllPatchesOnPool = ({ pool }) => {
 }
 
 import RollingPoolUpdateModal from './rolling-pool-updates-modal' // eslint-disable-line import/first
-export const rollingPoolUpdate = poolId =>
-  confirm({
+export const rollingPoolUpdate = async poolId => {
+  await confirm({
     body: <RollingPoolUpdateModal pool={poolId} />,
     title: _('rollingPoolUpdate'),
     icon: 'pool-rolling-update',
-  }).then(() =>
-    _call('pool.rollingUpdate', { pool: poolId })::tap(
-      () => subscribeHostMissingPatches.forceRefresh(),
-      err => {
-        if (!forbiddenOperation.is(err)) {
-          throw err
-        }
-        confirm({
+  })
+
+  const rpu = async ({ bypassBackupCheck = false, rebootVm = false } = {}) => {
+    try {
+      await _call('pool.rollingUpdate', { pool: poolId, bypassBackupCheck, rebootVm })
+      subscribeHostMissingPatches.forceRefresh()
+    } catch (err) {
+      if (forbiddenOperation.is(err)) {
+        await confirm({
           body: (
             <p className='text-warning'>
               <Icon icon='alarm' /> {_('bypassBackupPoolModalMessage')}
@@ -1429,17 +1483,26 @@ export const rollingPoolUpdate = poolId =>
           ),
           title: _('rollingPoolUpdate'),
           icon: 'pool-rolling-update',
-        }).then(
-          () =>
-            _call('pool.rollingUpdate', { bypassBackupCheck: true, pool: poolId })::tap(() =>
-              subscribeHostMissingPatches.forceRefresh()
-            ),
-          noop
-        )
-      },
-      noop
-    )
-  )
+        })
+        await rpu({ bypassBackupCheck: true, rebootVm })
+      }
+      if (incorrectState.is(err, { property: 'guidance' })) {
+        await confirm({
+          body: (
+            <p className='text-warning'>
+              <Icon icon='alarm' /> {_('rpuRequireVmsReboot')}
+            </p>
+          ),
+          title: _('rollingPoolUpdate'),
+          icon: 'pool-rolling-update',
+        })
+        await rpu({ bypassBackupCheck, rebootVm: true })
+      }
+    }
+  }
+
+  await rpu()
+}
 
 export const installSupplementalPack = (host, file) => {
   info(_('supplementalPackInstallStartedTitle'), _('supplementalPackInstallStartedMessage'))
@@ -1505,7 +1568,7 @@ export const hidePcis = async (pcis, hide) => {
 
 export const isPciHidden = async pci => (await _call('pci.getDom0AccessStatus', { id: resolveId(pci) })) === 'disabled'
 
-//  ATM, unknown date for the availablity on XS, since they are doing rolling release
+//  ATM, unknown date for the availability on XS, since they are doing rolling release
 // FIXME: When XS release methods to do PCI passthrough, update this check
 export const isPciPassthroughAvailable = host =>
   host.productBrand === 'XCP-ng' && semver.satisfies(host.version, '>=8.3.0')
@@ -2030,7 +2093,7 @@ export const createVm = async args => {
     return await _call('vm.create', args)
   } catch (err) {
     handlePoolDoesNotSupportVtpmError(err)
-    throw error
+    throw err
   }
 }
 
@@ -2487,7 +2550,8 @@ export const migrateVdi = (vdi, sr, resourceSet) =>
     sr_id: resolveId(sr),
   })
 
-export const setCbt = (vdi, cbt) => _call('vdi.set', { id: resolveId(vdi), cbt })
+export const setCbt = (vdi, cbt) =>
+  _call('vdi.set', { id: resolveId(vdi), cbt }).catch(err => error(_('setCbtError'), err.message || String(err)))
 
 // VBD ---------------------------------------------------------------
 
@@ -2836,6 +2900,13 @@ export const destroyTasks = tasks =>
 
 export const abortXoTask = async task => {
   const response = await fetch(`./rest/v0/tasks/${task.id}/actions/abort`, { method: 'POST' })
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+}
+
+export const deleteXoTaskLog = async task => {
+  const response = await fetch(`./rest/v0/tasks/${task.id}`, { method: 'DELETE' })
   if (!response.ok) {
     throw new Error(await response.text())
   }
@@ -3899,12 +3970,13 @@ const downloadAndInstallXosanPack = (pack, pool, { version }) =>
     pool: resolveId(pool),
   })
 
-export const downloadAndInstallResource = ({ namespace, id, version, sr }) =>
+export const downloadAndInstallResource = ({ namespace, id, version, sr, templateOnly }) =>
   _call('cloud.downloadAndInstallResource', {
     namespace,
     id,
     version,
     sr: resolveId(sr),
+    templateOnly,
   })
 
 import UpdateXosanPacksModal from './update-xosan-packs-modal' // eslint-disable-line import/first
@@ -3988,7 +4060,19 @@ export const selfBindLicense = ({ id, plan, oldXoaId }) =>
     .then(() => _call('xoa.licenses.bindToSelf', { licenseId: id, oldXoaId }), noop)
     ::tap(subscribeSelfLicenses.forceRefresh)
 
-export const subscribeSelfLicenses = createSubscription(() => _call('xoa.licenses.getSelf'))
+export const subscribeSelfLicenses = createSubscription(() =>
+  _call('xoa.licenses.getSelf').then(licenses => {
+    if (!Array.isArray(licenses)) {
+      if (licenses?.state === 'register-needed') {
+        return []
+      }
+
+      throw new Error(licenses?.message || 'Could not fetch licenses')
+    }
+
+    return licenses
+  })
+)
 
 const createLicenseSubscription = productType =>
   createSubscription(() =>
@@ -4175,6 +4259,22 @@ export const exportAuditRecords = () =>
     window.open(`.${url}`)
   })
 
+export const importAuditRecords = async recordsFile => {
+  const { $sendTo } = await _call('audit.importRecords', { zipped: recordsFile.type === 'application/gzip' })
+  const response = await post($sendTo, recordsFile)
+  const text = await response.text()
+
+  if (response.status !== 200) {
+    throw new Error(text)
+  }
+
+  try {
+    return JSON.parse(text)
+  } catch (error) {
+    throw new Error(`Body is not a JSON, original message is : ${text}`)
+  }
+}
+
 export const checkAuditRecordsIntegrity = (oldest, newest) => _call('audit.checkIntegrity', { oldest, newest })
 
 export const generateAuditFingerprint = oldest => _call('audit.generateFingerprint', { oldest })
@@ -4204,7 +4304,7 @@ export const esxiListVms = (host, user, password, sslVerify) =>
 
 export const importVmsFromEsxi = params => _call('vm.importMultipleFromEsxi', params)
 
-// Github API ---------------------------------------------------------------
+// GitHub API ---------------------------------------------------------------
 const _callGithubApi = async (endpoint = '') => {
   const url = new URL('https://api.github.com/repos/vatesfr/xen-orchestra')
   url.pathname += endpoint

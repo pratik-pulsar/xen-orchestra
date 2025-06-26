@@ -11,12 +11,21 @@ exports.configurationSchema = {
   type: 'object',
   properties: {
     discoveryURL: {
-      description: 'If this field is not used, you will need to manually enter settings in the *Advanced* section.',
+      description:
+        'The OIDC discovery URL provided by your identity provider.\n\nIf this field is not used, you will need to manually enter settings in the *Advanced* section.',
       title: 'Auto-discovery URL',
       type: 'string',
     },
-    clientID: { title: 'Client identifier (key)', type: 'string' },
-    clientSecret: { title: 'Client secret', type: 'string' },
+    clientID: {
+      description: 'The client ID from your identity provider.',
+      title: 'Client identifier (key)',
+      type: 'string',
+    },
+    clientSecret: {
+      description: 'Your client secret.',
+      title: 'Client secret',
+      type: 'string',
+    },
 
     advanced: {
       title: 'Advanced',
@@ -25,6 +34,7 @@ exports.configurationSchema = {
       properties: {
         authorizationURL: { title: 'Authorization URL', type: 'string' },
         callbackURL: {
+          description: 'The redirect URI for OIDC responses.',
           title: 'Callback URL',
           default: '/signin/oidc/callback',
           type: 'string',
@@ -43,7 +53,7 @@ exports.configurationSchema = {
 
 Scopes should be listed separated by a single whitespace.
 
-Note: The \`openid\` scope is implicitely included.
+Note: The \`openid\` scope is implicitly included.
 `,
           default: 'profile',
           title: 'Scopes',
@@ -53,7 +63,10 @@ Note: The \`openid\` scope is implicitely included.
     },
   },
   required: ['clientID', 'clientSecret'],
-  anyOf: [{ required: ['discoveryURL'] }, { properties: { advanced: { required: DISCOVERABLE_SETTINGS } } }],
+  anyOf: [
+    { required: ['discoveryURL'] },
+    { required: ['advanced'], properties: { advanced: { type: 'object', required: DISCOVERABLE_SETTINGS } } },
+  ],
 }
 
 // ===================================================================

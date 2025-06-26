@@ -225,8 +225,14 @@ function safeHumanFormat(value, opts) {
 
 export const formatLogs = logs =>
   Promise.all(
-    map(logs, ({ body }, id) => {
-      const matches = /^value:\s*([0-9.]+)\s+config:\s*([^]*)$/.exec(body)
+    map(logs, ({ body, name }, id) => {
+      if (['BOND_STATUS_CHANGED', 'MULTIPATH_PERIODIC_ALERT'].includes(name)) {
+        // for these alarms, body is a string
+        // ex: "body": "The status of the eth0+eth1 bond is: 1/2 up"
+        return { name: body, id }
+      }
+      //  value can be: float, Infinity, -Infinity and NaN
+      const matches = /^value:\s*(Infinity|NaN|-Infinity|[0-9.]+)\s+config:\s*([^]*)$/.exec(body)
       if (matches === null) {
         return
       }
@@ -618,7 +624,7 @@ export const downloadLog = ({ log, date, type }) => {
 
 // ===================================================================
 
-// Creates compare function based on different criterias
+// Creates compare function based on different criteria
 //
 // ```js
 // [{ name: 'bar', value: v2 }, { name: 'foo', value: v1 }].sort(

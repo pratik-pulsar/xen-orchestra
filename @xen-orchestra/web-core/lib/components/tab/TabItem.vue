@@ -1,13 +1,12 @@
 <!-- v1.0 -->
 <template>
-  <component :is="tag" :class="classNames" class="tab-item typo">
+  <component :is="tag" :class="classNames" class="tab-item">
     <slot />
   </component>
 </template>
 
 <script lang="ts" setup>
-import { useContext } from '@core/composables/context.composable'
-import { DisabledContext } from '@core/context'
+import { useDisabled } from '@core/composables/disabled.composable'
 import { useUiStore } from '@core/stores/ui.store'
 import { storeToRefs } from 'pinia'
 import { computed } from 'vue'
@@ -18,16 +17,16 @@ const props = withDefaults(
     active?: boolean
     tag?: string
   }>(),
-  { tag: 'span', disabled: undefined }
+  { tag: 'span' }
 )
 
 const { isMobile } = storeToRefs(useUiStore())
 
-const isDisabled = useContext(DisabledContext, () => props.disabled)
+const isDisabled = useDisabled(() => props.disabled)
 
 const classNames = computed(() => {
   return [
-    isMobile.value ? 'c3-semi-bold' : 'c1-semi-bold',
+    isMobile.value ? 'typo-caption-small' : 'typo-caption',
     {
       disabled: isDisabled.value,
       active: props.active,
@@ -40,31 +39,31 @@ const classNames = computed(() => {
 /* COLOR VARIANTS */
 .tab-item {
   & {
-    --color: var(--color-grey-100);
+    --color: var(--color-neutral-txt-primary);
     --border-color: transparent;
     --background-color: transparent;
   }
 
   &:is(:hover, .hover, :focus-visible) {
-    --color: var(--color-grey-100);
-    --border-color: var(--color-purple-d20);
-    --background-color: var(--background-color-purple-20);
+    --color: var(--color-neutral-txt-primary);
+    --border-color: var(--color-brand-item-hover);
+    --background-color: var(--color-brand-background-hover);
   }
 
   &:is(:active, .pressed) {
-    --color: var(--color-grey-100);
-    --border-color: var(--color-purple-d40);
-    --background-color: var(--background-color-purple-30);
+    --color: var(--color-neutral-txt-primary);
+    --border-color: var(--color-brand-item-active);
+    --background-color: var(--color-brand-background-active);
   }
 
   &:is(.active, .selected) {
-    --color: var(--color-grey-100);
-    --border-color: var(--color-purple-base);
-    --background-color: var(--background-color-purple-10);
+    --color: var(--color-neutral-txt-primary);
+    --border-color: var(--color-brand-item-base);
+    --background-color: var(--color-brand-background-selected);
   }
 
   &:is(:disabled, .disabled) {
-    --color: var(--color-grey-400);
+    --color: var(--color-neutral-txt-secondary);
     --border-color: transparent;
     --background-color: transparent;
   }
@@ -72,11 +71,11 @@ const classNames = computed(() => {
 
 /* SIZE VARIANTS */
 .tab-item {
-  &.c3-semi-bold {
+  &.typo-caption-small {
     --spacing: 0.8rem;
   }
 
-  &.c1-semi-bold {
+  &.typo-caption {
     --spacing: 1.6rem;
   }
 }

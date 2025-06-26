@@ -1,12 +1,12 @@
 <template>
   <UiCard :color="hasError ? 'error' : undefined" class="linear-chart">
-    <UiCardTitle>{{ $t('pool-ram-usage') }}</UiCardTitle>
+    <UiCardTitle>{{ t('pool-ram-usage') }}</UiCardTitle>
     <UiCardTitle :level="UiCardTitleLevel.Subtitle">
-      {{ $t('last-week') }}
+      {{ t('last-week') }}
     </UiCardTitle>
     <NoDataError v-if="hasError" />
     <UiCardSpinner v-else-if="isLoading" />
-    <LinearChart v-else :data :max-value="customMaxValue" :value-formatter="customValueFormatter" />
+    <VtsLinearChart v-else :data :max-value="customMaxValue" :value-formatter="customValueFormatter" />
     <SizeStatsSummary :size="currentData.size" :usage="currentData.usage" />
   </UiCard>
 </template>
@@ -21,14 +21,14 @@ import { formatSize } from '@/libs/utils'
 import { RRD_STEP_FROM_STRING } from '@/libs/xapi-stats'
 import { useHostMetricsStore } from '@/stores/xen-api/host-metrics.store'
 import { useHostStore } from '@/stores/xen-api/host.store'
-import type { LinearChartData } from '@/types/chart'
 import { UiCardTitleLevel } from '@/types/enums'
 import { IK_HOST_LAST_WEEK_STATS } from '@/types/injection-keys'
+import type { LinearChartData } from '@core/types/chart'
 import { sumBy } from 'lodash-es'
 import { computed, defineAsyncComponent, inject } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-const LinearChart = defineAsyncComponent(() => import('@/components/charts/LinearChart.vue'))
+const VtsLinearChart = defineAsyncComponent(() => import('@core/components/linear-chart/VtsLinearChart.vue'))
 
 const { runningHosts, isFetching, hasError } = useHostStore().subscribe()
 const { getHostMemory } = useHostMetricsStore().subscribe()
@@ -100,5 +100,11 @@ const isStatFetched = computed(() => {
 
 const isLoading = computed(() => (isFetching.value && !hasError.value) || !isStatFetched.value)
 
-const customValueFormatter = (value: number) => String(formatSize(value))
+const customValueFormatter = (value: number | null) => {
+  if (value === null) {
+    return ''
+  }
+
+  return formatSize(value)
+}
 </script>

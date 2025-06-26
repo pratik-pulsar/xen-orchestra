@@ -4,18 +4,22 @@ import { createXapiStoreConfig } from '@/stores/xen-api/create-xapi-store-config
 import { useHostMetricsStore } from '@/stores/xen-api/host-metrics.store'
 import { useXenApiStore } from '@/stores/xen-api.store'
 import { createSubscribableStoreContext } from '@core/utils/create-subscribable-store-context.util'
+import { sortByNameLabel } from '@core/utils/sort-by-name-label.util.ts'
 import { defineStore } from 'pinia'
 import { computed } from 'vue'
 
 export const useHostStore = defineStore('xen-api-host', () => {
-  const deps = { metrics: useHostMetricsStore() }
+  const deps = { metricsStore: useHostMetricsStore() }
+
+  const metricsContext = deps.metricsStore.getContext()
+
   const xenApiStore = useXenApiStore()
 
-  const { context: baseContext, ...configRest } = createXapiStoreConfig('host')
+  const { context: baseContext, ...configRest } = createXapiStoreConfig('host', {
+    sortBy: (host1, host2) => sortByNameLabel(host1, host2),
+  })
 
-  const runningHosts = computed(() =>
-    baseContext.records.value.filter(host => deps.metrics.$context.isHostRunning(host))
-  )
+  const runningHosts = computed(() => baseContext.records.value.filter(host => metricsContext.isHostRunning(host)))
 
   const getStats = ((hostUuid, granularity, ignoreExpired = false, { abortSignal }) => {
     const host = baseContext.getByUuid(hostUuid)

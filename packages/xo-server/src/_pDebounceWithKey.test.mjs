@@ -1,5 +1,5 @@
 import assert from 'assert/strict'
-import test from 'test'
+import test from 'node:test'
 import { debounceWithKey, REMOVE_CACHE_ENTRY } from './_pDebounceWithKey.mjs'
 
 const { describe, it } = test
@@ -15,7 +15,7 @@ describe('REMOVE_CACHE_ENTRY', () => {
       id => id
     )
 
-    // not cached accross keys
+    // not cached across keys
     assert.equal(await debouncedFn(1), 1)
     assert.equal(await debouncedFn(2), 2)
 

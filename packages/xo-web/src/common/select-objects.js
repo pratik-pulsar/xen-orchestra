@@ -257,6 +257,7 @@ class GenericSelect extends React.Component {
             : undefined,
         memoryFree: option.xoItem.type === 'host' || undefined,
         showNetwork: true,
+        ...(this.props.optionProps ?? {}),
       })}
     </span>
   )
@@ -514,7 +515,7 @@ export const SelectPif = makeStoreSelect(
 
 // ===================================================================
 
-const GenericSelectTag = makeStoreSelect(
+export const GenericSelectTag = makeStoreSelect(
   (_, props) => ({
     xoObjects: createSelector(
       createGetTags('objects' in props ? (_, props) => props.objects : undefined)
@@ -668,7 +669,7 @@ export const SelectSubject = makeSubscriptionSelect(
     const set = newSubjects => {
       subjects = newSubjects
       /* We must wait for groups AND users options to be loaded,
-       * or a previously setted value belonging to one type or another might be discarded
+       * or a previously set value belonging to one type or another might be discarded
        * by the internal <GenericSelect>
        */
       if (usersLoaded && groupsLoaded) {

@@ -1,16 +1,25 @@
 <template>
-  <TitleBar :icon="faBuilding">
+  <UiHeadBar :icon="faCity">
     {{ name }}
-  </TitleBar>
+    <template #actions>
+      <RouterLink :to="{ name: 'new-vm' }">
+        <UiButton :left-icon="faPlus" variant="secondary" accent="brand" size="medium">{{ t('new-vm') }}</UiButton>
+      </RouterLink>
+    </template>
+  </UiHeadBar>
 </template>
 
 <script lang="ts" setup>
-import TitleBar from '@/components/TitleBar.vue'
 import { usePoolStore } from '@/stores/xen-api/pool.store'
-import { faBuilding } from '@fortawesome/free-regular-svg-icons'
+import UiButton from '@core/components/ui/button/UiButton.vue'
+import UiHeadBar from '@core/components/ui/head-bar/UiHeadBar.vue'
+import { faCity, faPlus } from '@fortawesome/free-solid-svg-icons'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 const { pool } = usePoolStore().subscribe()
+
+const { t } = useI18n()
 
 const name = computed(() => pool.value?.name_label ?? '...')
 </script>

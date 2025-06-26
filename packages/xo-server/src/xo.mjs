@@ -12,6 +12,7 @@ import stubTrue from 'lodash/stubTrue.js'
 import SslCertificate from '@xen-orchestra/mixins/SslCertificate.mjs'
 import Tasks from '@xen-orchestra/mixins/Tasks.mjs'
 import { Collection as XoCollection } from 'xo-collection'
+import { Index } from 'xo-collection/index.js'
 import { createClient as createRedisClient } from 'redis'
 import { createDebounceResource } from '@vates/disposable/debounceResource.js'
 import { createLogger } from '@xen-orchestra/log'
@@ -41,6 +42,7 @@ export default class Xo extends EventEmitter {
 
     this._objects = new XoCollection()
     this._objects.createIndex('byRef', new XoUniqueIndex('_xapiRef'))
+    this._objects.createIndex('type', new Index('type'))
 
     this._httpRequestWatchers = { __proto__: null }
 
@@ -96,6 +98,14 @@ export default class Xo extends EventEmitter {
     return obj
   }
 
+  hasObject(key, type) {
+    try {
+      return this.getObject(key, type) !== undefined
+    } catch (_) {
+      return false
+    }
+  }
+
   getObjects({ filter, limit } = {}) {
     const { all } = this._objects
 
@@ -115,6 +125,34 @@ export default class Xo extends EventEmitter {
     for (const id in all) {
       const object = all[id]
       if (filter(object, id, all)) {
+        if (limit-- <= 0) {
+          break
+        }
+        results[id] = object
+      }
+    }
+    return results
+  }
+
+  getObjectsByType(type, { filter, limit } = {}) {
+    const objects = this._objects.indexes.type[type]
+
+    if (filter === undefined) {
+      if (limit === undefined || limit === Infinity) {
+        return objects
+      }
+      filter = stubTrue
+    } else {
+      filter = iteratee(filter)
+      if (limit === undefined) {
+        limit = Infinity
+      }
+    }
+
+    const results = { __proto__: null }
+    for (const id in objects) {
+      const object = objects[id]
+      if (filter(object, id, objects)) {
         if (limit-- <= 0) {
           break
         }

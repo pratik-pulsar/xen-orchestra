@@ -9,6 +9,7 @@ import { asyncMap } from '@xen-orchestra/async-map'
 import { createLogger } from '@xen-orchestra/log'
 import { decorateClass } from '@vates/decorate-with'
 import { defer } from 'golike-defer'
+import { extract } from '@xen-orchestra/xapi/xoData.mjs'
 import { finished } from 'node:stream'
 import { incorrectState, forbiddenOperation } from 'xo-common/api-errors.js'
 import { JsonRpcError } from 'json-rpc-protocol'
@@ -17,7 +18,7 @@ import { Ref } from 'xen-api'
 import isDefaultTemplate from './isDefaultTemplate.mjs'
 import isVmRunning from './_isVmRunning.mjs'
 
-const { warn } = createLogger('xo:xapi:vm')
+const { warn, error } = createLogger('xo:xapi:vm')
 
 const BIOS_STRINGS_KEYS = new Set([
   'baseboard-asset-tag',
@@ -388,7 +389,7 @@ class Vm {
       power_state: suspend_VDI !== undefined ? 'Suspended' : undefined,
       suspend_VDI,
     })
-    $defer.onFailure.call(this, 'VM.destroy', ref)
+    $defer.onFailure.call(this, 'call', 'VM.destroy', ref)
 
     bios_strings = cleanBiosStrings(bios_strings)
     if (bios_strings !== undefined) {
@@ -397,6 +398,41 @@ class Vm {
     }
 
     return ref
+  }
+
+  async createCloudInitConfig(vmRef, cloudConfig, { networkConfig } = {}) {
+    const vm = await this.getRecord('VM', vmRef)
+
+    // Find the SR of the first VDI.
+    let sr
+    for (const vbdRef of vm.VBDs) {
+      const vbd = await this.getRecord('VBD', vbdRef)
+
+      if (vbd.type !== 'CD' && vbd.VDI !== undefined && Ref.isNotEmpty(vbd.VDI)) {
+        sr = await this.getRecord('SR', await this.getField('VDI', vbd.VDI, 'SR'))
+        break
+      }
+    }
+
+    if (sr === undefined) {
+      throw new Error("Can't create cloud init config drive for VM without disks")
+    }
+
+    const {
+      creation: { template: templateUuid },
+    } = extract(vm)
+    const isCoreOsTemplate = (await this.getFieldByUuid('VM', templateUuid, 'name_label')) === 'CoreOS'
+
+    const vmId = vm.uuid
+    const srId = sr.uuid
+    try {
+      return await (isCoreOsTemplate
+        ? this.createCoreOsCloudInitConfigDrive(vmId, srId, cloudConfig)
+        : this.createCloudInitConfigDrive(vmId, srId, cloudConfig, networkConfig))
+    } catch (error) {
+      warn('createCloudInitConfig failed', { vmId, srId })
+      throw error
+    }
   }
 
   async destroy(
@@ -427,7 +463,7 @@ class Vm {
     // It is necessary for suspended VMs to be shut down
     // to be able to delete their VDIs.
     if (vm.power_state !== 'Halted') {
-      await this.call('VM.hard_shutdown', vmRef)
+      await this.callAsync('VM.hard_shutdown', vmRef)
     }
 
     await Promise.all([
@@ -442,9 +478,9 @@ class Vm {
     // must be done before destroying the VM
     const disks = await this.VM_getDisks(vmRef, vm.VBDs)
 
-    // this cannot be done in parallel, otherwise disks and snapshots will be
+    // this cannot be done in parallel; otherwise, disks and snapshots will be
     // destroyed even if this fails
-    await this.call('VM.destroy', vmRef)
+    await this.callAsync('VM.destroy', vmRef)
 
     await Promise.all([
       asyncMap(vm.snapshots, snapshotRef =>
@@ -546,6 +582,14 @@ class Vm {
     const query = {}
     if (srRef !== undefined) {
       query.sr_id = srRef
+    } else if (this.pool.default_SR === Ref.EMPTY) {
+      error('Unable to import VM if no SR is specified and no default_SR is set on the pool')
+      /* throw */ incorrectState({
+        actual: this.pool.default_SR,
+        expected: 'Not empty',
+        object: this.pool.uuid,
+        property: 'default_SR',
+      })
     }
     if (onVmCreation != null) {
       const original = onVmCreation
@@ -726,7 +770,24 @@ class Vm {
 
   async disableChangedBlockTracking(vmRef) {
     const vdiRefs = await this.VM_getDisks(vmRef)
-    await Promise.all(vdiRefs.map(vdiRef => this.call('VDI.disable_cbt', vdiRef)))
+    await Promise.all(vdiRefs.map(vdiRef => this.callAsync('VDI.disable_cbt', vdiRef)))
+  }
+
+  async reboot($defer, vmRef, { force = false, bypassBlockedOperation = force } = {}) {
+    if (bypassBlockedOperation) {
+      const blockedOperations = await this.getField('VM', vmRef, 'blocked_operations')
+      await Promise.all(
+        ['reboot', 'clean_reboot', 'hard_reboot'].map(async operation => {
+          const reason = blockedOperations[operation]
+          if (reason !== undefined) {
+            await this.call('VM.remove_from_blocked_operations', vmRef, operation)
+            $defer(() => this.call('VM.add_to_blocked_operations', vmRef, operation, reason))
+          }
+        })
+      )
+    }
+
+    await this.callAsync(`VM.${force ? 'hard' : 'clean'}_reboot`, vmRef)
   }
 }
 export default Vm
@@ -737,4 +798,5 @@ decorateClass(Vm, {
   export: defer,
   coalesceLeaf: defer,
   snapshot: defer,
+  reboot: defer,
 })

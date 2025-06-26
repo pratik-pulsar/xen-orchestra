@@ -2,7 +2,7 @@ import { asyncEach } from '@vates/async-each'
 import { asyncMap, asyncMapSettled } from '@xen-orchestra/async-map'
 import { compose } from '@vates/compose'
 import { createLogger } from '@xen-orchestra/log'
-import { createVhdDirectoryFromStream, openVhd, VhdAbstract, VhdDirectory, VhdSynthetic } from 'vhd-lib'
+import { VhdDirectory, VhdSynthetic } from 'vhd-lib'
 import { decorateMethodsWith } from '@vates/decorate-with'
 import { deduped } from '@vates/disposable/deduped.js'
 import { dirname, join, resolve } from 'node:path'
@@ -10,7 +10,6 @@ import { execFile } from 'child_process'
 import { mount } from '@vates/fuse-vhd'
 import { readdir, lstat } from 'node:fs/promises'
 import { synchronized } from 'decorator-synchronized'
-import { v4 as uuidv4 } from 'uuid'
 import { ZipFile } from 'yazl'
 import Disposable from 'promise-toolbox/Disposable'
 import fromCallback from 'promise-toolbox/fromCallback'
@@ -18,6 +17,7 @@ import fromEvent from 'promise-toolbox/fromEvent'
 import groupBy from 'lodash/groupBy.js'
 import pDefer from 'promise-toolbox/defer'
 import pickBy from 'lodash/pickBy.js'
+import reduce from 'lodash/reduce.js'
 import tar from 'tar'
 import zlib from 'zlib'
 
@@ -30,6 +30,11 @@ import { isValidXva } from './_isValidXva.mjs'
 import { listPartitions, LVM_PARTITION_TYPE } from './_listPartitions.mjs'
 import { lvs, pvs } from './_lvm.mjs'
 import { watchStreamSize } from './_watchStreamSize.mjs'
+
+import { RemoteVhd } from './disks/RemoteVhd.mjs'
+import { openDiskChain } from './disks/openDiskChain.mjs'
+import { toVhdStream, writeToVhdDirectory } from 'vhd-lib/disk-consumer/index.mjs'
+import { ReadAhead } from '@xen-orchestra/disk-transform'
 
 export const DIR_XO_CONFIG_BACKUPS = 'xo-config-backups'
 
@@ -106,10 +111,13 @@ export class RemoteAdapter {
   async *_getLvmLogicalVolumes(devicePath, pvId, vgName) {
     yield this._getLvmPhysicalVolume(devicePath, pvId && (await this._findPartition(devicePath, pvId)))
 
+    debug('activate LVM volume group', { vgName })
     await fromCallback(execFile, 'vgchange', ['-ay', vgName])
     try {
+      debug('get LVM volume group name and path', { vgName })
       yield lvs(['lv_name', 'lv_path'], vgName)
     } finally {
+      debug('deactivate LVM volume group', { vgName })
       await fromCallback(execFile, 'vgchange', ['-an', vgName])
     }
   }
@@ -120,15 +128,22 @@ export class RemoteAdapter {
       args.push('-o', partition.start * 512, '--sizelimit', partition.size)
     }
     args.push('--show', '-f', devicePath)
+
+    debug('attach loop device', { devicePath, partition })
     const path = (await fromCallback(execFile, 'losetup', args)).trim()
     try {
+      debug('list LVM physical volume', { path })
       await fromCallback(execFile, 'pvscan', ['--cache', path])
+
       yield path
     } finally {
       try {
         const vgNames = await pvs('vg_name', path)
+
+        debug('deactivate LVM volume groups', { vgNames })
         await fromCallback(execFile, 'vgchange', ['-an', ...vgNames])
       } finally {
+        debug('detach loop device', { path })
         await fromCallback(execFile, 'losetup', ['-d', path])
       }
     }
@@ -149,6 +164,7 @@ export class RemoteAdapter {
 
     const path = yield getTmpDir()
     const mount = options => {
+      debug('mount device', { devicePath, mountPath: path })
       return fromCallback(execFile, 'mount', [
         `--options=${options.join(',')}`,
         `--source=${devicePath}`,
@@ -166,6 +182,7 @@ export class RemoteAdapter {
     try {
       yield path
     } finally {
+      debug('umount device', { devicePath, mountPath: path })
       await fromCallback(execFile, 'umount', ['--lazy', path])
     }
   }
@@ -188,7 +205,7 @@ export class RemoteAdapter {
     })
   }
 
-  // check if we will be allowed to merge a a vhd created in this adapter
+  // check if we will be allowed to merge a vhd created in this adapter
   // with the vhd at path `path`
   async isMergeableParent(packedParentUid, path) {
     return await Disposable.use(VhdSynthetic.fromVhdChain(this.handler, path), vhd => {
@@ -335,6 +352,8 @@ export class RemoteAdapter {
 
     const diskPath = handler.getFilePath('/' + diskId)
     const mountDir = yield getTmpDir()
+
+    debug('mount VHD (vhdimount)', { diskPath, mountPath: mountDir })
     await fromCallback(execFile, 'vhdimount', [diskPath, mountDir])
     try {
       let max = 0
@@ -356,6 +375,7 @@ export class RemoteAdapter {
 
       yield `${mountDir}/${maxEntry}`
     } finally {
+      debug('umount VHD (fusermount)', { diskPath, mountPath: mountDir })
       await fromCallback(execFile, 'fusermount', ['-uz', mountDir])
     }
   }
@@ -407,12 +427,20 @@ export class RemoteAdapter {
   async listAllVms() {
     const handler = this._handler
     const vmsUuids = []
-    await asyncEach(await handler.list(BACKUP_DIR), async entry => {
-      // ignore hidden and lock files
-      if (entry[0] !== '.' && !entry.endsWith('.lock')) {
-        vmsUuids.push(entry)
+    try {
+      await asyncEach(await handler.list(BACKUP_DIR), async entry => {
+        // ignore hidden and lock files
+        if (entry[0] !== '.' && !entry.endsWith('.lock')) {
+          vmsUuids.push(entry)
+        }
+      })
+    } catch (error) {
+      // remote without any VM backup are ok
+      if (error.code !== 'ENOENT') {
+        throw error
       }
-    })
+    }
+
     return vmsUuids
   }
 
@@ -665,26 +693,32 @@ export class RemoteAdapter {
     return path
   }
 
-  async writeVhd(path, input, { checksum = true, validator = noop, writeBlockConcurrency } = {}) {
+  async writeVhd(path, disk, { validator = noop, writeBlockConcurrency } = {}) {
     const handler = this._handler
+
     if (this.useVhdDirectory()) {
-      const dataPath = `${dirname(path)}/data/${uuidv4()}.vhd`
-      const size = await createVhdDirectoryFromStream(handler, dataPath, input, {
-        concurrency: writeBlockConcurrency,
-        compression: this.#getCompressionType(),
-        async validator() {
-          await input.task
-          return validator.apply(this, arguments)
+      await writeToVhdDirectory({
+        disk,
+        target: {
+          handler,
+          path,
+          concurrency: writeBlockConcurrency,
+          validator,
+          compression: 'brotli',
         },
       })
-      await VhdAbstract.createAlias(handler, path, dataPath)
-      return size
     } else {
-      return this.outputStream(path, input, { checksum, validator })
+      const stream = await toVhdStream(disk)
+      await this.outputStream(path, stream, { validator })
+      await validator(path)
     }
   }
 
-  async outputStream(path, input, { checksum = true, maxStreamLength, streamLength, validator = noop } = {}) {
+  async outputStream(
+    path,
+    input,
+    { checksum = !this._handler.isEncrypted, maxStreamLength, streamLength, validator = noop } = {}
+  ) {
     const container = watchStreamSize(input)
     await this._handler.outputStream(path, input, {
       checksum,
@@ -700,50 +734,37 @@ export class RemoteAdapter {
   }
 
   // open the  hierarchy of ancestors until we find a full one
-  async _createVhdStream(handler, path, { useChain }) {
-    const disposableSynthetic = useChain ? await VhdSynthetic.fromVhdChain(handler, path) : await openVhd(handler, path)
-    // I don't want the vhds to be disposed on return
-    // but only when the stream is done ( or failed )
-
-    let disposed = false
-    const disposeOnce = async () => {
-      if (!disposed) {
-        disposed = true
-        try {
-          await disposableSynthetic.dispose()
-        } catch (error) {
-          warn('openVhd: failed to dispose VHDs', { error })
-        }
-      }
+  async _createVhdDisk(handler, path, { useChain }) {
+    let disk
+    if (useChain) {
+      disk = await openDiskChain({ handler, path })
+    } else {
+      disk = new RemoteVhd({ handler, path })
+      await disk.init()
     }
-    const synthetic = disposableSynthetic.value
-    await synthetic.readBlockAllocationTable()
-    const stream = await synthetic.stream()
-
-    stream.on('end', disposeOnce)
-    stream.on('close', disposeOnce)
-    stream.on('error', disposeOnce)
-    return stream
+    disk = new ReadAhead(disk)
+    return disk
   }
 
   async readIncrementalVmBackup(metadata, ignoredVdis, { useChain = true } = {}) {
     const handler = this._handler
-    const { vbds, vhds, vifs, vm, vmSnapshot } = metadata
+    const { vbds, vhds, vifs, vm, vmSnapshot, vtpms } = metadata
     const dir = dirname(metadata._filename)
     const vdis = ignoredVdis === undefined ? metadata.vdis : pickBy(metadata.vdis, vdi => !ignoredVdis.has(vdi.uuid))
-
-    const streams = {}
+    const disks = {}
     await asyncMapSettled(Object.keys(vdis), async ref => {
-      streams[`${ref}.vhd`] = await this._createVhdStream(handler, join(dir, vhds[ref]), { useChain })
+      delete vdis[ref].baseVdi
+      disks[ref] = await this._createVhdDisk(handler, join(dir, vhds[ref]), { useChain })
     })
 
     return {
-      streams,
+      disks,
       vbds,
       vdis,
       version: '1.0.0',
       vifs,
       vm: { ...vm, suspend_VDI: vmSnapshot.suspend_VDI },
+      vtpms,
     }
   }
 
@@ -755,7 +776,7 @@ export class RemoteAdapter {
     let json
     let isImmutable = false
     let remoteIsImmutable = false
-    // if the remote is immutable, check if this metadatas are also immutables
+    // if the remote is immutable, check if this metadata is also immutable
     try {
       // this file is not encrypted
       await this._handler._readFile(IMMUTABILTY_METADATA_FILENAME)
@@ -771,7 +792,7 @@ export class RemoteAdapter {
       json = await this.handler.readFile(path, { flag: 'r+' })
       // s3 handler don't respect flags
     } catch (err) {
-      // retry without triggerring immutbaility check ,only on immutable remote
+      // retry without triggering immutability check ,only on immutable remote
       if (err.code === 'EPERM' && remoteIsImmutable) {
         isImmutable = true
         json = await this._handler.readFile(path, { flag: 'r' })
@@ -825,6 +846,29 @@ export class RemoteAdapter {
       }
     }
     return metadata
+  }
+
+  #computeTotalBackupSizeRecursively(backups) {
+    return reduce(
+      backups,
+      (prev, backup) => {
+        const _backup = Array.isArray(backup) ? this.#computeTotalBackupSizeRecursively(backup) : backup
+        return {
+          onDisk: prev.onDisk + (_backup.onDisk ?? _backup.size),
+        }
+      },
+      { onDisk: 0 }
+    )
+  }
+
+  async getTotalVmBackupSize() {
+    return this.#computeTotalBackupSizeRecursively(await this.listAllVmBackups())
+  }
+
+  async getTotalBackupSize() {
+    const vmBackupSize = await this.getTotalVmBackupSize()
+    // @TODO: add `getTotalXoBackupSize` and `getTotalPoolBackupSize` once `size` is implemented by fs
+    return vmBackupSize
   }
 }
 

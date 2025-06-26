@@ -1,6 +1,6 @@
 'use strict'
 
-const { beforeEach, afterEach, describe, it } = require('test')
+const { beforeEach, afterEach, describe, it } = require('node:test')
 const { strict: assert } = require('assert')
 
 const { rimraf } = require('rimraf')
@@ -104,8 +104,8 @@ describe('VhdDirectory', async () => {
 
       // compressed vhd have a metadata file
       assert.equal(await fs.exists(`${tempDir}/compressed.vhd/chunk-filters.json`), true)
-      const metada = JSON.parse(await handler.readFile('compressed.vhd/chunk-filters.json'))
-      assert.equal(metada[0], 'gzip')
+      const metadata = JSON.parse(await handler.readFile('compressed.vhd/chunk-filters.json'))
+      assert.equal(metadata[0], 'gzip')
 
       // compressed vhd should not be broken
       await compressedVhd.readHeaderAndFooter()

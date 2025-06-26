@@ -1,18 +1,20 @@
 /* eslint eslint-comments/disable-enable-pair: [error, {allowWholeFile: true}] */
 /* eslint-disable camelcase */
+import fatfs from '@vates/fatfs'
 import asyncMapSettled from '@xen-orchestra/async-map/legacy.js'
-import fatfs from 'fatfs'
 import filter from 'lodash/filter.js'
 import find from 'lodash/find.js'
 import flatMap from 'lodash/flatMap.js'
 import flatten from 'lodash/flatten.js'
 import isEmpty from 'lodash/isEmpty.js'
+import keyBy from 'lodash/keyBy.js'
 import mapToArray from 'lodash/map.js'
 import mixin from '@xen-orchestra/mixin/legacy.js'
 import ms from 'ms'
 import noop from 'lodash/noop.js'
 import once from 'lodash/once.js'
 import pick from 'lodash/pick.js'
+import semver from 'semver'
 import tarStream from 'tar-stream'
 import uniq from 'lodash/uniq.js'
 import { asyncMap } from '@xen-orchestra/async-map'
@@ -25,7 +27,7 @@ import { limitConcurrency } from 'limit-concurrency-decorator'
 import { parseDuration } from '@vates/parse-duration'
 import { PassThrough, pipeline } from 'stream'
 import { forbiddenOperation, operationFailed } from 'xo-common/api-errors.js'
-import { parseDateTime, Xapi as XapiBase } from '@xen-orchestra/xapi'
+import { parseDateTime, Xapi as XapiBase, XapiDiskSource } from '@xen-orchestra/xapi'
 import { Ref } from 'xen-api'
 import { synchronized } from 'decorator-synchronized'
 
@@ -36,6 +38,7 @@ import { debounceWithKey } from '../_pDebounceWithKey.mjs'
 import mixins from './mixins/index.mjs'
 import OTHER_CONFIG_TEMPLATE from './other-config-template.mjs'
 import { asInteger, canSrHaveNewVdiOfSize, isVmHvm, isVmRunning, prepareXapiParam } from './utils.mjs'
+import { toQcow2Stream } from '@xen-orchestra/qcow2'
 
 const log = createLogger('xo:xapi')
 
@@ -166,15 +169,7 @@ export default class Xapi extends XapiBase {
   // =================================================================
 
   async joinPool(masterAddress, masterUsername, masterPassword, force = false) {
-    try {
-      await this.call(force ? 'pool.join_force' : 'pool.join', masterAddress, masterUsername, masterPassword)
-    } catch (error) {
-      const params = error?.call?.params
-      if (Array.isArray(params)) {
-        params[2] = '* obfuscated *'
-      }
-      throw error
-    }
+    await this.call(force ? 'pool.join_force' : 'pool.join', masterAddress, masterUsername, masterPassword)
   }
 
   // =================================================================
@@ -564,8 +559,12 @@ export default class Xapi extends XapiBase {
     for (const vbd of vbds) {
       if (vbd.type === 'Disk') {
         const vdi = vbd.$VDI
-        // Ignore VDI snapshots which have a parent
-        if (vdi.$snapshot_of !== undefined) {
+        // We need to explicitly test VDI.is_a_snapshot because there is a problem with XAPI itself (observed on
+        // an XCP-ng 8.1 host, might be related to CBT), where some non-snapshot VDIs have a snapshot_of
+        // property not equal to OpaqueRef:NULL as expected but containing a reference to an existing VDI.
+        //
+        // https://team.vates.fr/vates/pl/9m4u5rsr7tfcdroykwq6i6mcmo
+        if (vdi.is_a_snapshot && vdi.$snapshot_of !== undefined) {
           continue
         }
         vdis[vdi.$ref] = getMigrationSrRef(vdi)
@@ -614,16 +613,16 @@ export default class Xapi extends XapiBase {
         }
       }
     }
-    const loop = async () => {
+    const loop = async (_failOnCbtError = false) => {
       try {
         await this.callAsync('VM.migrate_send', ...params)
       } catch (err) {
-        if (err.code === 'VDI_CBT_ENABLED') {
+        if (err.code === 'VDI_CBT_ENABLED' && !_failOnCbtError) {
           // as of 20240619, CBT must be disabled on all disks to allow migration to go through
           // it will be re enabled if needed by backups
           // the next backup after a storage migration will be a full backup
           await this.VM_disableChangedBlockTracking(vm.$ref)
-          return loop()
+          return loop(true)
         }
         if (err.code === 'TOO_MANY_STORAGE_MIGRATES') {
           await pDelay(1e4)
@@ -793,7 +792,7 @@ export default class Xapi extends XapiBase {
 
         try {
           // vmdk size can be wrong in ova
-          // we use the size ine the vmdk descriptor to create the vdi
+          // we use the size in the vmdk descriptor to create the vdi
           const vdi = (vdis[diskMetadata.path] = await this._getOrWaitObject(
             await this.VDI_create({
               name_description: diskMetadata.descriptionLabel,
@@ -1035,7 +1034,7 @@ export default class Xapi extends XapiBase {
     return this.callAsync('VDI.clone', vdi.$ref)
   }
 
-  async moveVdi(vdiId, srId) {
+  async moveVdi(vdiId, srId, { _failOnCbtError = false } = {}) {
     const vdi = this.getObject(vdiId)
     const sr = this.getObject(srId)
 
@@ -1052,17 +1051,24 @@ export default class Xapi extends XapiBase {
       )
     } catch (error) {
       const { code } = error
-      if (code === 'VDI_CBT_ENABLED') {
-        // 20240629 we need to disable CBT on all disks of the VM since the xapi
-        // checks all disk of a VM even to migrate only one disk
-        if (vdi.VBDs.length === 0) {
-          await this.call('VDI.disable_cbt', vdi.$ref)
+      if (code === 'VDI_CBT_ENABLED' && !_failOnCbtError) {
+        log.debug(`${vdi.name_label} has CBT enabled`)
+        // disks attached to dom0 are a xapi internal
+        // it can be, for example, during an export
+        // we shouldn't consider these VBDs are relevant here
+        const vbds = vdi.$VBDs.filter(({ $VM }) => $VM.is_control_domain === false)
+        if (vbds.length === 0) {
+          log.debug(`will disable CBT on ${vdi.name_label}  `)
+          await this.callAsync('VDI.disable_cbt', vdi.$ref)
         } else {
-          if (vdi.VBDs.length > 1) {
-            // no implicit workaround if vdi is multi attached
+          if (vbds.length > 1) {
+            // no implicit workaround if vdi is attached to multiple VMs
             throw error
           }
-          const vbd = this.getObject(vdi.VBDs[0])
+          // 20240629 we need to disable CBT on all disks of the VM since the xapi
+          // checks all disk of a VM even to migrate only one disk
+          const vbd = vbds[0]
+          log.debug(`will disable CBT on the full VM ${vbd.$VM.name_label}, containing disk ${vdi.name_label}  `)
           await this.VM_disableChangedBlockTracking(vbd.VM)
         }
 
@@ -1070,8 +1076,8 @@ export default class Xapi extends XapiBase {
         // after a migration the next delta backup is always a base copy
         // and this will only enabled cbt on needed disks
 
-        // retry
-        return this.moveVdi(vdiId, srId, false)
+        // retry migrating disk
+        return this.moveVdi(vdiId, srId, { _failOnCbtError: true })
       }
       if (code !== 'NO_HOSTS_AVAILABLE' && code !== 'LICENCE_RESTRICTION' && code !== 'VDI_NEEDS_VM_FOR_MIGRATE') {
         throw error
@@ -1187,6 +1193,20 @@ export default class Xapi extends XapiBase {
       return vhdResult
     })
     return vmdkStream
+  }
+
+  async exportVdiAsQcow2(vdi, filename, { cancelToken = CancelToken.none, base, nbdConcurrency, preferNbd } = {}) {
+    vdi = this.getObject(vdi)
+
+    const disk = new XapiDiskSource({
+      vdiRef: vdi.$ref,
+      xapi: vdi.$xapi,
+      nbdConcurrency,
+      preferNbd,
+    })
+    await disk.init()
+    const stream = toQcow2Stream(disk)
+    return stream
   }
 
   // =================================================================
@@ -1332,7 +1352,7 @@ export default class Xapi extends XapiBase {
     const config = await this.call('host.call_plugin', host.$ref, 'xscontainer', 'get_config_drive_default', {
       templateuuid: template.uuid,
     })
-    return config.slice(4) // FIXME remove the "True" string on the begining
+    return config.slice(4) // FIXME remove the "True" string on the beginning
   }
 
   // Specific CoreOS Config Drive
@@ -1361,10 +1381,11 @@ export default class Xapi extends XapiBase {
     const sr = this.getObject(srId)
 
     // First, create a small VDI (10MB) which will become the ConfigDrive
-    let buffer = fatfsBufferInit({ label: 'cidata     ' })
+    const fsLabel = 'cidata     '
+    let buffer = fatfsBufferInit({ label: fsLabel })
 
     // Then, generate a FAT fs
-    const { mkdir, writeFile } = promisifyAll(fatfs.createFileSystem(fatfsBuffer(buffer)))
+    const { createLabel, mkdir, writeFile } = promisifyAll(fatfs.createFileSystem(fatfsBuffer(buffer)))
 
     await Promise.all([
       // preferred datasource: NoCloud
@@ -1385,6 +1406,7 @@ export default class Xapi extends XapiBase {
           ])
         )
       ),
+      createLabel(fsLabel),
     ])
     // only add the MBR for windows VM
     if (vm.platform.viridian === 'true') {
@@ -1515,5 +1537,43 @@ export default class Xapi extends XapiBase {
         throw error
       }
     }
+  }
+
+  async getHostBiosInfo(ref, { cache } = {}) {
+    const biosData = await this.call('host.get_bios_strings', ref)
+
+    const { 'bios-version': currentBiosVersion, 'system-product-name': hostServerName } = biosData
+
+    if (biosData['system-manufacturer']?.toLowerCase() !== '2crsi') {
+      return
+    }
+
+    // this code has race conditions which might lead to multiple fetches in parallel
+    // but it's no big deal
+    let servers
+    if (!cache?.has('servers')) {
+      const response = await fetch(
+        'https://pictures.2cr.si/Images_site_web_Odoo/Pages_produit/VATES-BIOS_BMC_last-version.json'
+      )
+      const json = await response.json()
+      servers = keyBy(json[0]['2CRSi_Servers'], 'Server_Name')
+
+      cache?.set('servers', servers)
+    } else {
+      servers = cache.get('servers')
+    }
+
+    const serverData = servers[hostServerName]
+
+    if (serverData === undefined) {
+      return
+    }
+
+    const { 'BIOS-Version': latestBiosVersion, 'BIOS-link': biosLink } = serverData
+
+    // Compare versions loosely to handle non-standard formats
+    const isUpToDate = semver.eq(currentBiosVersion, latestBiosVersion, { loose: true })
+
+    return { currentBiosVersion, latestBiosVersion, biosLink, isUpToDate }
   }
 }

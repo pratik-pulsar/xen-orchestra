@@ -55,8 +55,15 @@ import Import from './import'
 import keymap, { help } from '../keymap'
 import Tooltip from '../common/tooltip'
 import { createCollectionWrapper, createGetObjectsOfType } from '../common/selectors'
-import { bindXcpngLicense, rebindLicense, subscribeXcpngLicenses, subscribeXostorLicenses } from '../common/xo'
+import {
+  bindXcpngLicense,
+  rebindLicense,
+  subscribeXcpngLicenses,
+  subscribeXostorLicenses,
+  subscribeSelfLicenses,
+} from '../common/xo'
 import { SOURCES } from '../common/xoa-plans'
+import { getLicenseNearExpiration } from '../common/xoa-updater'
 
 const shortcutManager = new ShortcutManager(keymap)
 
@@ -139,15 +146,20 @@ export const ICON_POOL_LICENSE = {
 @addSubscriptions({
   xcpLicenses: subscribeXcpngLicenses,
   xostorLicenses: subscribeXostorLicenses,
+  selfLicences: subscribeSelfLicenses,
 })
 @connectStore(state => {
   const getHosts = createGetObjectsOfType('host')
   const getXostors = createGetObjectsOfType('SR').filter([sr => sr.SR_type === 'linstor'])
+  const getXsa468VulnerableVms = createGetObjectsOfType('VM').filter([
+    vm => vm.vulnerabilities?.xsa468?.reason === 'pv-driver-version-vulnerable' && !vm.tags.includes('HIDE_XSA468'),
+  ])
   return {
     trial: state.xoaTrialState,
     registerNeeded: state.xoaUpdaterState === 'registerNeeded',
     signedUp: !!state.user,
     hosts: getHosts(state),
+    xsa468VulnerableVms: getXsa468VulnerableVms(state),
     xostors: getXostors(state),
   }
 })
@@ -172,7 +184,7 @@ export const ICON_POOL_LICENSE = {
     },
   },
   computed: {
-    // In case an host have more than 1 license, it's an issue.
+    // In case a host have more than 1 license, it's an issue.
     // poolLicenseInfoByPoolId can be impacted because the license expiration check may not yield the right information.
     xcpngLicenseByBoundObjectId: (_, { xcpLicenses }) =>
       xcpLicenses === undefined ? undefined : keyBy(xcpLicenses, 'boundObjectId'),
@@ -437,11 +449,14 @@ export default class XoApp extends Component {
   }
 
   render() {
-    const { signedUp, trial, registerNeeded } = this.props
+    const { signedUp, trial, registerNeeded, xsa468VulnerableVms } = this.props
     const { pathname } = this.context.router.location
+    const licenseNearExpiration = this.props.selfLicences && getLicenseNearExpiration(this.props.selfLicences, trial)
     // If we are under expired or unstable trial (signed up only)
     const blocked =
-      signedUp && blockXoaAccess(trial) && !(pathname.startsWith('/xoa/') || pathname === '/backup/restore')
+      signedUp &&
+      (blockXoaAccess(trial) || licenseNearExpiration?.blocked === true) &&
+      !(pathname.startsWith('/xoa/') || pathname === '/backup/restore')
     const plan = getXoaPlan()
 
     return (
@@ -468,7 +483,7 @@ export default class XoApp extends Component {
                     {_('disclaimerText3')}
                   </a>{' '}
                   <a
-                    href='https://xen-orchestra.com/docs/installation.html#banner-and-warnings'
+                    href='https://docs.xen-orchestra.com/installation#banner-and-warnings'
                     rel='noopener noreferrer'
                     target='_blank'
                   >
@@ -488,6 +503,20 @@ export default class XoApp extends Component {
                   <button className='close' onClick={this.dismissTrialBanner}>
                     &times;
                   </button>
+                </div>
+              )}
+              {licenseNearExpiration && (
+                <div className={`alert alert-info mb-0 ${licenseNearExpiration.popupClass ?? 'alert-info'}`}>
+                  {_(licenseNearExpiration.strCode, {
+                    duration: licenseNearExpiration.textDuration,
+                    date: new Date(licenseNearExpiration.license.expires),
+                  })}
+                </div>
+              )}
+              {Object.keys(xsa468VulnerableVms).length > 0 && (
+                <div className='alert alert-danger mb-0'>
+                  IMPORTANT! Some of your VMs are vulnerable.{' '}
+                  <Link to='/home?s=vulnerable%3F'>Please check immediately.</Link>
                 </div>
               )}
               <div style={CONTAINER_STYLE}>

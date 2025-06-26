@@ -13,13 +13,15 @@
           v-else
           v-tooltip="{
             placement: 'left',
-            content: $t('n-hosts-awaiting-patch', {
+            content: t('n-hosts-awaiting-patch', {
               n: patch.$hostRefs.size,
             }),
           }"
           :value="patch.$hostRefs.size"
           class="counter"
-          color="error"
+          accent="danger"
+          variant="primary"
+          size="small"
         />
       </td>
     </tr>
@@ -31,10 +33,11 @@ import UiCardSpinner from '@/components/ui/UiCardSpinner.vue'
 import UiSpinner from '@/components/ui/UiSpinner.vue'
 import UiTable from '@/components/ui/UiTable.vue'
 import type { XenApiPatchWithHostRefs } from '@/composables/host-patches.composable'
-import UiCounter from '@core/components/UiCounter.vue'
+import UiCounter from '@core/components/ui/counter/UiCounter.vue'
 import { vTooltip } from '@core/directives/tooltip.directive'
 import { useUiStore } from '@core/stores/ui.store'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 const props = defineProps<{
   patches: XenApiPatchWithHostRefs[]
@@ -42,6 +45,8 @@ const props = defineProps<{
   areAllLoaded: boolean
   areSomeLoaded: boolean
 }>()
+
+const { t } = useI18n()
 
 const sortedPatches = computed(() =>
   [...props.patches].sort((patch1, patch2) => {

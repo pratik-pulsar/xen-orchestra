@@ -1,51 +1,54 @@
 <template>
   <div class="app-login form-container">
-    <form @submit.prevent="handleSubmit">
+    <div class="card">
       <img alt="XO Lite" src="../assets/logo-title.svg" />
       <PoolOverrideWarning />
       <p v-if="isHostIsSlaveErr(error)" class="error">
         <UiIcon :icon="faExclamationCircle" />
-        {{ $t('login-only-on-master') }}
+        {{ t('login-only-on-master') }}
         <a :href="masterUrl.href">{{ masterUrl.hostname }}</a>
       </p>
-      <template v-else>
-        <FormInputWrapper>
+      <form v-else class="form" @submit.prevent="handleSubmit">
+        <VtsInputWrapper :label="t('login')">
           <FormInput v-model="login" name="login" readonly type="text" />
-        </FormInputWrapper>
-        <FormInput
-          ref="passwordRef"
-          v-model="password"
-          name="password"
-          type="password"
-          :class="{ error: isInvalidPassword }"
-          :placeholder="$t('password')"
-          :readonly="isConnecting"
-          required
-        />
+        </VtsInputWrapper>
+
+        <VtsInputWrapper :label="$t('password')">
+          <FormInput
+            ref="passwordRef"
+            v-model="password"
+            name="password"
+            type="password"
+            :class="{ error: isInvalidPassword }"
+            :placeholder="t('password')"
+            :readonly="isConnecting"
+            required
+          />
+        </VtsInputWrapper>
         <LoginError :error />
-        <label class="remember-me-label">
-          <FormCheckbox v-model="rememberMe" />
-          {{ $t('keep-me-logged') }}
-        </label>
-        <UiButton type="submit" :busy="isConnecting">
-          {{ $t('login') }}
+
+        <UiCheckbox v-model="rememberMe" accent="brand">
+          {{ t('keep-me-logged') }}
+        </UiCheckbox>
+        <UiButton size="medium" accent="brand" variant="primary" type="submit" :busy="isConnecting">
+          {{ t('login') }}
         </UiButton>
-      </template>
-    </form>
+      </form>
+    </div>
   </div>
 </template>
 
 <script lang="ts" setup>
-import FormCheckbox from '@/components/form/FormCheckbox.vue'
 import FormInput from '@/components/form/FormInput.vue'
-import FormInputWrapper from '@/components/form/FormInputWrapper.vue'
 import LoginError from '@/components/LoginError.vue'
 import PoolOverrideWarning from '@/components/PoolOverrideWarning.vue'
 import UiIcon from '@/components/ui/icon/UiIcon.vue'
 import type { XenApiError } from '@/libs/xen-api/xen-api.types'
 import { usePageTitleStore } from '@/stores/page-title.store'
 import { useXenApiStore } from '@/stores/xen-api.store'
-import UiButton from '@core/components/button/UiButton.vue'
+import VtsInputWrapper from '@core/components/input-wrapper/VtsInputWrapper.vue'
+import UiButton from '@core/components/ui/button/UiButton.vue'
+import UiCheckbox from '@core/components/ui/checkbox/UiCheckbox.vue'
 import { faExclamationCircle } from '@fortawesome/free-solid-svg-icons'
 import { useLocalStorage, whenever } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
@@ -102,16 +105,6 @@ async function handleSubmit() {
 </script>
 
 <style lang="postcss" scoped>
-.remember-me-label {
-  cursor: pointer;
-  display: flex;
-  margin: 1rem;
-  width: fit-content;
-  & .form-checkbox {
-    margin: auto 1rem auto auto;
-  }
-}
-
 .form-container {
   display: flex;
   align-items: center;
@@ -119,10 +112,10 @@ async function handleSubmit() {
   justify-content: center;
   min-height: 100vh;
   max-width: 100vw;
-  background-color: var(--background-color-primary);
+  background-color: var(--color-neutral-background-primary);
 }
 
-form {
+.card {
   display: flex;
   font-size: 2rem;
   min-width: 30em;
@@ -131,11 +124,17 @@ form {
   justify-content: center;
   margin: 0 auto;
   padding: 8.5rem;
-  background-color: var(--background-color-secondary);
+  background-color: var(--color-neutral-background-secondary);
 
   .error {
-    color: var(--color-red-base);
+    color: var(--color-danger-txt-base);
   }
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.6rem;
 }
 
 h1 {
@@ -155,7 +154,7 @@ input {
   max-width: 100%;
   margin-bottom: 1rem;
   padding: 1rem 1.5rem;
-  border: 1px solid var(--color-grey-500);
+  border: 1px solid var(--color-neutral-border);
   border-radius: 0.8rem;
   background-color: white;
 }

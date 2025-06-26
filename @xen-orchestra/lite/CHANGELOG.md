@@ -2,6 +2,75 @@
 
 ## **next**
 
+- [Pool/system] Display pool information in pool/system tab (PR [#8660](https://github.com/vatesfr/xen-orchestra/pull/8660))
+- [VM/Dashboard] Display VM information in dashboard tab (PR [#8529](https://github.com/vatesfr/xen-orchestra/pull/8529))
+- [Tab/Network] Updated side panel in tab network behavior for mobile view (PR [#8688](https://github.com/vatesfr/xen-orchestra/pull/8688)
+
+## **0.11.0** (2025-05-27)
+
+- [VM/system] Display system information in vm/system tab (PR [##8547](https://github.com/vatesfr/xen-orchestra/pull/8547))
+- [Host/system] Display system view information in host/system tab (PR [#8536](https://github.com/vatesfr/xen-orchestra/pull/8536))
+- [Host/Dashboard] Update CPU provisioning logic (PR [#8648](https://github.com/vatesfr/xen-orchestra/pull/8648))
+
+## **0.10.1** (2025-05-07)
+
+- [VM/New] Add possibility to add some tags in VM creation (PR [#8515](https://github.com/vatesfr/xen-orchestra/pull/8515))
+- [VM/New] Add affinity host field in VM creation (PR [#8486](https://github.com/vatesfr/xen-orchestra/pull/8486))
+- [VM/New] Add possibility to edit SR field on existing vdis in VM creation (PR [#8507](https://github.com/vatesfr/xen-orchestra/pull/8507))
+
+## **0.10.0** (2025-04-30)
+
+- [Host/Header] Add master host icon on host header (PR [#8512](https://github.com/vatesfr/xen-orchestra/pull/8512))
+- [Host] Add dashboard view (PR [#8504](https://github.com/vatesfr/xen-orchestra/pull/8504))
+- [VM/New] Add topology field in VM creation (PR [#8491](https://github.com/vatesfr/xen-orchestra/pull/8491))
+- [VM] Improved rooting of default vm page (PR [#8553](https://github.com/vatesfr/xen-orchestra/pull/8553))
+
+## **0.9.1** (2025-04-02)
+
+- Fix blank page in production mode (PR [#8471](https://github.com/vatesfr/xen-orchestra/pull/8471))
+
+## **0.9.0** (2025-03-31)
+
+- [VM/New]: Add VM creation page and form (PR [#8317](https://github.com/vatesfr/xen-orchestra/pull/8317))
+- [VM/Network]: Display vifs list in vm view and vifs information in side panel (PR [#8441](https://github.com/vatesfr/xen-orchestra/pull/8441))
+
+## **0.8.0** (2025-02-27)
+
+- [i18n] Add Swedish, update Czech and Spanish translations (contributions made by [@xiscoj](https://github.com/xiscoj), [@p-bo](https://github.com/p-bo) and [Jonas](https://translate.vates.tech/user/Jonas/)) (PR [#8294](https://github.com/vatesfr/xen-orchestra/pull/8294))
+- [i18n] Merge XO Lite translations files into one file in web-core ([PR #8380](https://github.com/vatesfr/xen-orchestra/pull/8380))
+- [Pool/Network]: Display networks and host internal networks information in side panel (PR [#8150](https://github.com/vatesfr/xen-orchestra/pull/8150))
+- [Host/Network]: Display pifs information in side panel (PR [#8186](https://github.com/vatesfr/xen-orchestra/pull/8186))
+
+## **0.7.1** (2025-02-04)
+
+- [Host/Console] Fix console sometimes not correctly displayed (PR [#8305](https://github.com/vatesfr/xen-orchestra/pull/8305))
+
+## **0.7.0** (2025-01-30)
+
+- Fix persistent scrollbar on the right (PR [#8191](https://github.com/vatesfr/xen-orchestra/pull/8191))
+- [Console]: Displays a loader when the console is loading (PR [#8226](https://github.com/vatesfr/xen-orchestra/pull/8226))
+- [i18n] Add Spanish translation (contribution made by [@DSJ2](https://github.com/DSJ2)) (PR [#8220](https://github.com/vatesfr/xen-orchestra/pull/8220))
+- [Console]: Adding a border when console is focused (PR [#8235](https://github.com/vatesfr/xen-orchestra/pull/8235))
+- [Pool/Network]: Display networks and host internal networks lists in pool view (PR [#8147](https://github.com/vatesfr/xen-orchestra/pull/8147))
+- [Host/Network]: Display pifs list in host view (PR [#8180](https://github.com/vatesfr/xen-orchestra/pull/8180))
+- [Host/Network]: Fix issue with wording in host pif table (PR [8285](https://github.com/vatesfr/xen-orchestra/pull/8285))
+- [Pool/Network]: Fix issue with network status (PR [#8284](https://github.com/vatesfr/xen-orchestra/pull/8284))
+
+## **0.6.0** (2024-11-29)
+
+- [Pool/Dashboard] `Patches` and `Status` cards are displayed with a greater minimum width (PR [#8108](https://github.com/vatesfr/xen-orchestra/pull/8108))
+- [Header] Update user menu button (PR [#8109](https://github.com/vatesfr/xen-orchestra/pull/8109))
+- [VM/Console] Display _Console Clipboard_ and _Console Actions_ (PR [#8125](https://github.com/vatesfr/xen-orchestra/pull/8125))
+- [i18n] Add Czech translation (contribution made by [@p-bo](https://github.com/p-bo)) (PR [#8098](https://github.com/vatesfr/xen-orchestra/pull/8098))
+- [Host/Console] Display _Console_, _Console Clipboard_ and _Console Actions_ (PR [#8136](https://github.com/vatesfr/xen-orchestra/pull/8136))
+
+## **0.5.0** (2024-10-31)
+
+- Handle IPv6 hosts (PR [#8044](https://github.com/vatesfr/xen-orchestra/pull/8044))
+- [XOA deploy] Configure custom NTP servers (PR [#8059](https://github.com/vatesfr/xen-orchestra/pull/8059))
+
+## **0.4.0** (2024-09-30)
+
 - [Settings] Default UI theme is now _auto_ instead of _dark_
 
 ## **0.2.7** (2024-07-31)
@@ -27,7 +96,7 @@
 
 ## **0.2.0** (2024-02-29)
 
-- Fix Typescript typings errors when running `yarn type-check` command (PR [#7278](https://github.com/vatesfr/xen-orchestra/pull/7278))
+- Fix TypeScript typings errors when running `yarn type-check` command (PR [#7278](https://github.com/vatesfr/xen-orchestra/pull/7278))
 - Introduce PWA Json Manifest (PR [#7291](https://github.com/vatesfr/xen-orchestra/pull/7291))
 
 ## **0.1.7** (2023-12-28)

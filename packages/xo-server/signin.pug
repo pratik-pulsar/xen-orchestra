@@ -13,7 +13,7 @@ html
         img(src = 'assets/iospark-logo.png' style = 'margin: auto; height:80%')
       
       if error
-        p.text-danger #{error}
+        p.error #{error}
       if otp
         form(action = 'signin-otp' method = 'post' style = 'margin:auto;')
           fieldset
@@ -25,11 +25,12 @@ html
                 autofocus
                 name = 'otp'
                 type = 'text'
+                inputmode = 'numeric'
                 placeholder = 'Code'
                 required
               )
             div
-              button.btn.btn-block.btn-info
+              button.btn.btn-block
                 i.fa.fa-sign-in
                 |  Sign in
       else
@@ -44,7 +45,7 @@ html
                 | &nbsp;
                 | Remember me
             each label, id in strategies
-              div: button(type = 'submit' name = 'provider' value = id).btn.btn-block.btn-primary.mb-1 Sign in with #{label}
+              div: button(type = 'submit' name = 'provider' value = id).btn.btn-block.mb-1 Sign in with #{label}
           hr
         form(action = 'signin/local' method = 'post' style = 'margin:auto;')
           fieldset
@@ -76,7 +77,7 @@ html
                 | &nbsp;
                 | Remember me
             div
-              button.btn.btn-block.btn-primary
+              button.btn.btn-block
                 |  Sign in with password
     script.
       (function () {

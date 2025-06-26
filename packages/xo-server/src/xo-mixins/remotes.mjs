@@ -10,6 +10,7 @@ import { synchronized } from 'decorator-synchronized'
 
 import patch from '../patch.mjs'
 import { Remotes } from '../models/remote.mjs'
+import Disposable from 'promise-toolbox/Disposable'
 
 // ===================================================================
 
@@ -31,7 +32,7 @@ const INVALID_URL_PARAMS = ['benchmarks', 'id', 'info', 'name', 'proxy', 'enable
 function validateUrl(url) {
   const parsedUrl = parse(url)
 
-  const { path } = parsedUrl
+  const { path, encryptionKey, useVhdDirectory } = parsedUrl
   if (path !== undefined && basename(path) === 'xo-vm-backups') {
     throw invalidParameters('remote url should not end with xo-vm-backups')
   }
@@ -41,6 +42,12 @@ function validateUrl(url) {
       // log with stack trace
       warn(new Error('invalid remote URL param ' + param))
     }
+  }
+
+  const hasEncryption = encryptionKey !== undefined
+  const hasVhdDirectory = useVhdDirectory === true
+  if (hasEncryption && !hasVhdDirectory) {
+    throw invalidParameters('Encryption must be used with VHD directory (data blocks)')
   }
 }
 
@@ -296,5 +303,17 @@ export default class {
     }
 
     await this._remotes.remove(id)
+  }
+
+  async getTotalBackupSizeOnRemote(id) {
+    const remote = await this._getRemote(id)
+
+    if (remote.proxy !== undefined) {
+      return this._app.callProxyMethod(remote.proxy, 'remote.getTotalBackupSize', {
+        remote,
+      })
+    }
+
+    return Disposable.use(this._app.getBackupsRemoteAdapter(remote), adapter => adapter.getTotalBackupSize())
   }
 }

@@ -25,6 +25,7 @@ import {
   abortXoTask,
   cancelTask,
   cancelTasks,
+  deleteXoTaskLog,
   destroyTask,
   destroyTasks,
   subscribePermissions,
@@ -56,7 +57,7 @@ const Li = props => (
 )
 
 const TASK_ITEM_STYLE = {
-  // Remove all margin, otherwise it breaks vertical alignment.
+  // Remove all margin; otherwise, it breaks vertical alignment.
   margin: 0,
 }
 
@@ -240,6 +241,15 @@ const INDIVIDUAL_ACTIONS = [
   },
 ]
 
+const XO_TASKS_ACTIONS = [
+  {
+    handler: tasks => Promise.all(tasks.map(deleteXoTaskLog)),
+    icon: 'task-destroy',
+    label: _('taskDeleteLog'),
+    level: 'warning',
+  },
+]
+
 const XO_TASKS_INDIVIDUAL_ACTIONS = [
   {
     handler: task => window.open(task.href),
@@ -375,6 +385,7 @@ export default class Tasks extends Component {
           <Row>
             <Col>
               <SortedTable
+                actions={XO_TASKS_ACTIONS}
                 collection={props.xoTasks}
                 columns={XO_TASKS_COLUMNS}
                 individualActions={XO_TASKS_INDIVIDUAL_ACTIONS}

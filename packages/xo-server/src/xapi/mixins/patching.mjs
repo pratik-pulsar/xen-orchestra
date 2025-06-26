@@ -1,6 +1,8 @@
 import filter from 'lodash/filter.js'
 import find from 'lodash/find.js'
+import keyBy from 'lodash/keyBy.js'
 import pickBy from 'lodash/pickBy.js'
+import semver from 'semver'
 import some from 'lodash/some.js'
 import unzip from 'unzipper'
 import { asyncEach } from '@vates/async-each'
@@ -10,10 +12,11 @@ import { defer as deferrable } from 'golike-defer'
 import { Task } from '@xen-orchestra/mixins/Tasks.mjs'
 
 import ensureArray from '../../_ensureArray.mjs'
-import { debounceWithKey } from '../../_pDebounceWithKey.mjs'
+import { debounceWithKey, REMOVE_CACHE_ENTRY } from '../../_pDebounceWithKey.mjs'
 import { forEach, mapFilter, parseXml } from '../../utils.mjs'
 
 import { useUpdateSystem } from '../utils.mjs'
+import { incorrectState, notImplemented } from 'xo-common/api-errors.js'
 
 // TOC -------------------------------------------------------------------------
 
@@ -23,6 +26,8 @@ import { useUpdateSystem } from '../utils.mjs'
 //    _getXenUpdates           Map of Objects
 // # LIST
 //    _listXcpUpdates          XCP available updates - Array of Objects
+//    _listXsUpdates           XS >= 8.4 available updates - Array of Objects
+//    _fetchXsUpdatesEndpoint  XS >= 8.4 fetch `/updates` endpoint
 //    _listPatches             XS patches (installed or not) - Map of Objects
 //    _listInstalledPatches    XS installed patches on the host - Map of Booleans
 //    _listInstallablePatches  XS (host, requested patches) → sorted patches that are not installed and not conflicting - Array of Objects
@@ -36,9 +41,17 @@ import { useUpdateSystem } from '../utils.mjs'
 
 // HELPERS ---------------------------------------------------------------------
 
+const PENDING_GUIDANCES_LEVEL = {
+  mandatory: 0,
+  recommended: 1,
+  full: 2,
+}
+
 const log = createLogger('xo:xapi')
 
 const _isXcp = host => host.software_version.product_brand === 'XCP-ng'
+const _isXs = host => host.software_version.product_brand === 'XenServer'
+const _isXsWithCdnUpdates = host => _isXs(host) && semver.gt(host.software_version.product_version, '8.3.0')
 
 const LISTING_DEBOUNCE_TIME_MS = 60000
 
@@ -46,8 +59,10 @@ async function _listMissingPatches(hostId) {
   const host = this.getObject(hostId)
   return _isXcp(host)
     ? this._listXcpUpdates(host)
-    : // TODO: list paid patches of free hosts as well so the UI can show them
-      this._listInstallablePatches(host)
+    : _isXs(host) && semver.gt(host.software_version.product_version, '8.3.0')
+      ? this._listXsUpdates(host)
+      : // TODO: list paid patches of free hosts as well so the UI can show them
+        this._listInstallablePatches(host)
 }
 
 const listMissingPatches = debounceWithKey(_listMissingPatches, LISTING_DEBOUNCE_TIME_MS, hostId => hostId)
@@ -155,6 +170,99 @@ const methods = {
     }
 
     return result
+  },
+
+  /**
+   * fetch XS >= 8.4 updates
+   * @param {Host} host
+   * @returns {Promise<{
+   * hosts: Array<{
+   *  ref: String,
+   *  guidance: {
+   *    mandatory: Array<String>,
+   *    recommended: Array<String>,
+   *    full: Array<String>
+   *  },
+   *  RPMS: Array<String>,
+   *  updates: Array<String>,
+   *  livepatches: Array<{
+   *    component: String,
+   *    base_build_id: String,
+   *    base_release: String,
+   *    to_version: String,
+   *    to_release: String
+   *  }>
+   * }>,
+   * updates: Array<{
+   *  id: String,
+   *  summary: String,
+   *  description: String,
+   *  "special-info": String,
+   *  URL: String,
+   *  type: String,
+   *  issued: String,
+   *  severity: String,
+   *  livepatches: Array,
+   *  guidance: {
+   *    mandatory: Array<String>,
+   *    recommended: Array<String>,
+   *    full: Array<String>
+   *  },
+   *  title: String,
+   * }>,
+   * hash: String
+   * }>}
+   */
+  async _fetchXsUpdatesEndpoint(host) {
+    const { xo } = this
+
+    const serverId = xo.getXenServerIdByObject({ $pool: host.$pool.uuid, id: host.uuid })
+    const server = await xo.getXenServerWithCredentials(serverId)
+
+    const url = new URL(`http://${server.host}/updates`)
+    url.protocol = this._url.protocol
+    const opts = {
+      headers: { Authorization: `Basic ${Buffer.from(`${server.username}:${server.password}`).toString('base64')}` },
+      rejectUnauthorized: !this._allowUnauthorized,
+    }
+
+    const resp = await xo.httpRequest(url, opts)
+    return resp.json()
+  },
+
+  // List updates for XS >= 8.4
+  async _listXsUpdates(host) {
+    const xsUpdates = await this._fetchXsUpdatesEndpoint(host)
+    const updateById = keyBy(xsUpdates.updates, 'id')
+
+    const updatesInfo = xsUpdates.hosts.find(_host => _host.ref === host.$ref)
+    if (updatesInfo === undefined) {
+      throw new Error(`Host ref: ${host.$ref} match no hosts`)
+    }
+
+    const hostUpdates = updatesInfo.updates.map(updateId => {
+      const update = updateById[updateId]
+
+      const guidances = new Set(Object.values(update.guidance).flat())
+
+      // issued date are in invalid format: '20240926T08:30:08Z'
+      // add - to respect the ISO 8601 format
+      const formattedDate = update.issued.replace(/^(\d{4})(\d{2})(\d{2})T/, '$1-$2-$3T')
+
+      // Sometimes the update description can be an empty string.
+      // So I add the update summary to always have some context
+      const description = `${update.summary}\n${update.description}`
+
+      return {
+        date: formattedDate,
+        description,
+        documentationUrl: update.URL === 'None' ? undefined : update.URL,
+        guidance: Array.from(guidances).join(', '),
+        name: update.id,
+      }
+    })
+
+    return hostUpdates
   },
 
   // list all patches provided by Citrix for this host version regardless
@@ -401,7 +509,7 @@ const methods = {
     // New XS patching system: https://support.citrix.com/article/CTX473972/upcoming-changes-in-xencenter
     if (xsCredentials?.username === undefined || xsCredentials?.apikey === undefined) {
       throw new Error(
-        'XenServer credentials not found. See https://xen-orchestra.com/docs/updater.html#xenserver-updates'
+        'XenServer credentials not found. See https://docs.xen-orchestra.com/updater#xenserver-updates'
       )
     }
 
@@ -456,12 +564,20 @@ const methods = {
   // patches will be ignored for XCP (always updates completely)
   // patches that are already installed will be ignored (XS only)
   //
+  // xsHash is the hash returned by `xe pool-sync-updates` (only for XS >= 8.4)
+  //
   // XS pool-wide optimization only works when no hosts are specified
   // it may install more patches that specified if some of them require other patches
-  async installPatches({ patches, hosts, xsCredentials } = {}) {
+  async installPatches({ patches, hosts, xsCredentials, xsHash } = {}) {
+    const master = this.pool.$master
     // XCP
-    if (_isXcp(this.pool.$master)) {
+    if (_isXcp(master)) {
       return this._xcpUpdate(hosts)
+    }
+
+    // XS >= 8.4
+    if (_isXsWithCdnUpdates(master)) {
+      return this.xsCdnUpdate(hosts, xsHash)
     }
 
     // XS
@@ -487,16 +603,143 @@ const methods = {
     throw new Error('non pool-wide install not implemented')
   },
 
-  async rollingPoolUpdate($defer, parentTask, { xsCredentials } = {}) {
-    // Temporary workaround until XCP-ng finds a way to update linstor packages
-    if (some(this.objects.indexes.type.SR, { type: 'linstor' })) {
-      throw new Error('rolling pool update not possible since there is a linstor SR in the pool')
+  async xsCdnUpdate(hosts, hash) {
+    if (hosts === undefined) {
+      hosts = Object.values(this.objects.indexes.type.host)
     }
 
-    const isXcp = _isXcp(this.pool.$master)
+    if (hash === undefined) {
+      hash = (await this._fetchXsUpdatesEndpoint(hosts[0])).hash
+    }
+
+    // Hosts need to be updated one at a time starting with the pool master
+    hosts = hosts.sort(({ $ref }) => ($ref === this.pool.master ? -1 : 1))
+
+    for (const host of hosts) {
+      await this.callAsync('host.apply_updates', host.$ref, hash)
+    }
+
+    // recall the method to delete the cache entry after applying updates
+    await this._fetchXsUpdatesEndpoint(REMOVE_CACHE_ENTRY, hosts[0])
+  },
+
+  async _getPendingGuidances(object, level = PENDING_GUIDANCES_LEVEL.full) {
+    const record = await this.getRecord(object.$type, object.$ref)
+    const pendingGuidances = new Set()
+
+    if (level >= PENDING_GUIDANCES_LEVEL.mandatory && record.pending_guidances.length > 0) {
+      pendingGuidances.add(...record.pending_guidances)
+    }
+
+    if (level >= PENDING_GUIDANCES_LEVEL.recommended && record.pending_guidances_recommended.length > 0) {
+      pendingGuidances.add(...record.pending_guidances_recommended)
+    }
+
+    if (level >= PENDING_GUIDANCES_LEVEL.full && record.pending_guidances_full.length > 0) {
+      pendingGuidances.add(...record.pending_guidances_full)
+    }
+
+    return Array.from(pendingGuidances)
+  },
+
+  async _pendingGuidancesGuard(object, level) {
+    const pendingGuidances = await this._getPendingGuidances(object, level)
+
+    if (pendingGuidances.length > 0) {
+      /* throw */ incorrectState({
+        actual: pendingGuidances,
+        expected: [],
+        object: object.uuid,
+        property: 'pending_guidances(_recommended|_full)',
+      })
+    }
+  },
+
+  // for now, only handle VM's pending guidances
+  async _applyPendingGuidances(vm, pendingGuidances) {
+    if (pendingGuidances.length === 0) {
+      return
+    }
+
+    if (pendingGuidances.includes('restart_vm')) {
+      return this.VM_reboot(vm.$ref, { bypassBlockedOperation: true })
+    }
+
+    if (pendingGuidances.includes('restart_device_model')) {
+      try {
+        return await this.callAsync('VM.restart_device_models', vm.$ref)
+      } catch (error) {
+        log.debug(`restart_device_models failed on ${vm.uuid}. Going to reboot the VM`, error)
+        return this.VM_reboot(vm.$ref, { bypassBlockedOperation: true })
+      }
+    }
+
+    log.error(`Pending guidances not implemented: ${pendingGuidances.join(',')}`)
+    /* throw */ notImplemented()
+  },
+
+  async _updateLinstorPackages() {
+    const hosts = Object.values(this.objects.indexes.type.host)
+    const nSteps = 4
+    const nOperations = nSteps * hosts.length
+    let operationDone = 0
+
+    const callPluginOnAllHost = async (plugin, fn, args) => {
+      for (const host of hosts) {
+        await this.call('host.call_plugin', host.$ref, plugin, fn, args)
+        operationDone++
+        task.set('progress', (operationDone / nOperations) * 100)
+      }
+    }
+
+    const task = new Task({ properties: { name: 'Updating LINSTOR packages', progress: 0 } })
+    return task.run(async () => {
+      await callPluginOnAllHost('updater.py', 'update', { packages: 'xcp-ng-xapi-plugins' })
+      await callPluginOnAllHost('updater.py', 'update', { packages: 'xcp-ng-linstor' })
+      await callPluginOnAllHost('service.py', 'stop_service', { service: 'linstor-controller' })
+      await callPluginOnAllHost('service.py', 'restart_service', { service: 'linstor-satellite' })
+      task.set('progress', 100)
+    })
+  },
+
+  async rollingPoolUpdate($defer, parentTask, { xsCredentials, force = false, rebootVm = force } = {}) {
+    if (some(this.objects.indexes.type.SR, { type: 'linstor' })) {
+      await this._updateLinstorPackages()
+    }
+
+    const master = this.pool.$master
+    const isXcp = _isXcp(master)
+    const isXsWithCdnUpdates = _isXsWithCdnUpdates(master)
+    const hosts = Object.values(this.objects.indexes.type.host)
+
+    let xsHash
+
+    // only for XS >= 8.4
+    if (isXsWithCdnUpdates) {
+      const xsUpdatesResult = await this._fetchXsUpdatesEndpoint(master)
+      xsHash = xsUpdatesResult.hash
+      if (!rebootVm) {
+        // warn the user if RPU will reboot some VMs
+        xsUpdatesResult.hosts.forEach(host => {
+          const { full, mandatory, recommended } = host.guidance
+          const guidances = [...full, ...mandatory, ...recommended]
+          if (['RestartVM', 'RestartDeviceModel'].some(guidance => guidances.includes(guidance))) {
+            /* throw */ incorrectState({
+              actual: guidances,
+              expected: [],
+              object: host.uuid,
+              property: 'guidance',
+            })
+          }
+        })
+      }
+
+      // DO NOT UPDATE if some pending guidances are present https://docs.xenserver.com/en-us/xenserver/8/update/apply-updates-using-xe#before-you-start
+      const runningVms = filter(this.objects.indexes.type.VM, { power_state: 'Running', is_control_domain: false })
+      await asyncEach([...hosts, ...runningVms], obj => this._pendingGuidancesGuard(obj))
+    }
 
     const hasMissingPatchesByHost = {}
-    const hosts = filter(this.objects.all, { $type: 'host' })
     const subtask = new Task({ properties: { name: `Listing missing patches`, total: hosts.length, progress: 0 } })
     await subtask.run(async () => {
       let done = 0
@@ -520,24 +763,22 @@ const methods = {
       })
     })
 
-    return Task.run({ properties: { name: `Updating and rebooting` } }, async () => {
+    await Task.run({ properties: { name: `Updating and rebooting` } }, async () => {
       await this.rollingPoolReboot(parentTask, {
         xsCredentials,
-        beforeEvacuateVms: async () => {
-          // On XS/CH, start by installing patches on all hosts
-          if (!isXcp) {
-            return Task.run({ properties: { name: `Installing XS patches` } }, async () => {
-              await this.installPatches({ xsCredentials })
-            })
+        beforeEvacuateVms: () => {
+          // On XS < 8.4 and CH, start by installing patches on all hosts
+          if (!isXcp && !isXsWithCdnUpdates) {
+            return Task.run({ properties: { name: `Installing XS patches` } }, () =>
+              this.installPatches({ xsCredentials })
+            )
           }
         },
-        beforeRebootHost: async host => {
-          if (isXcp) {
+        beforeRebootHost: host => {
+          if (isXcp || isXsWithCdnUpdates) {
             return Task.run(
               { properties: { name: `Installing patches`, hostId: host.uuid, hostName: host.name_label } },
-              async () => {
-                await this.installPatches({ hosts: [host] })
-              }
+              () => this.installPatches({ hosts: [host], xsHash })
             )
           }
         },
@@ -546,6 +787,42 @@ const methods = {
         },
       })
     })
+
+    // Ensure no more pending guidances on hosts and apply them to running VMs
+    if (isXsWithCdnUpdates) {
+      await Promise.all(
+        hosts.map(async host => {
+          try {
+            await this._pendingGuidancesGuard(host)
+          } catch (error) {
+            log.debug(`host: ${host.uuid} has pending guidances even after a reboot!`)
+            throw error
+          }
+        })
+      )
+
+      const runningVms = filter(this.objects.indexes.type.VM, { power_state: 'Running', is_control_domain: false })
+      if (runningVms.length > 0) {
+        const subtask = new Task({
+          properties: { name: 'Apply VMs pending guidances', total: runningVms.length, progress: 0 },
+        })
+        await subtask.run(async () => {
+          let done = 0
+          await asyncEach(
+            runningVms,
+            async vm => {
+              const pendingGuidances = await this._getPendingGuidances(vm)
+              await Task.run({ properties: { name: 'Apply pending guidances', vmId: vm.uuid, pendingGuidances } }, () =>
+                this._applyPendingGuidances(vm, pendingGuidances)
+              )
+              done++
+              subtask.set('progress', Math.round((done * 100) / runningVms.length))
+            },
+            { stopOnError: false }
+          )
+        })
+      }
+    }
   },
 }
 
@@ -557,6 +834,8 @@ export default decorateObject(methods, {
       return this
     },
   ],
+
+  _fetchXsUpdatesEndpoint: [debounceWithKey, LISTING_DEBOUNCE_TIME_MS, host => host.$pool.uuid],
 
   _poolWideInstall: deferrable,
 

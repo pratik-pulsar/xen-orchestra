@@ -16,10 +16,12 @@ import {
   editHost,
   fetchHostStats,
   isHostTimeConsistentWithXoaTime,
+  isPubKeyTooShort,
   removeTag,
   startHost,
   stopHost,
   subscribeHvSupportedVersions,
+  subscribeMdadmHealth,
 } from 'xo'
 import { addSubscriptions, connectStore, formatSizeShort, hasLicenseRestrictions, osFamily } from 'utils'
 import {
@@ -39,9 +41,10 @@ import BulkIcons from '../../common/bulk-icons'
 import { LICENSE_WARNING_BODY } from '../host/license-warning'
 import { getXoaPlan, SOURCES } from '../../common/xoa-plans'
 
-@addSubscriptions({
+@addSubscriptions(props => ({
   hvSupportedVersions: subscribeHvSupportedVersions,
-})
+  mdadmHealth: subscribeMdadmHealth(props.item),
+}))
 @connectStore(() => ({
   container: createGetObject((_, props) => props.item.$pool),
   needsRestart: createDoesHostNeedRestart((_, props) => props.item),
@@ -57,9 +60,15 @@ import { getXoaPlan, SOURCES } from '../../common/xoa-plans'
 export default class HostItem extends Component {
   state = {
     isHostTimeConsistentWithXoaTime: true,
+    isPubKeyTooShort: false,
   }
 
   componentWillMount() {
+    isPubKeyTooShort(this.props.item).then(value =>
+      this.setState({
+        isPubKeyTooShort: value,
+      })
+    )
     Promise.resolve(isHostTimeConsistentWithXoaTime(this.props.item)).then(value =>
       this.setState({
         isHostTimeConsistentWithXoaTime: value,
@@ -136,7 +145,18 @@ export default class HostItem extends Component {
     () => this.state.isHostTimeConsistentWithXoaTime,
     this._getAreHostsVersionsEqual,
     () => this.props.state.hostsByPoolId[this.props.item.$pool],
-    (needsRestart, host, isMaintained, isHostTimeConsistentWithXoaTime, areHostsVersionsEqual, poolHosts) => {
+    () => this.state.isPubKeyTooShort,
+    () => this.props.mdadmHealth,
+    (
+      needsRestart,
+      host,
+      isMaintained,
+      isHostTimeConsistentWithXoaTime,
+      areHostsVersionsEqual,
+      poolHosts,
+      isPubKeyTooShort,
+      mdadmHealth
+    ) => {
       const alerts = []
 
       if (needsRestart) {
@@ -195,6 +215,28 @@ export default class HostItem extends Component {
         })
       }
 
+      if (isPubKeyTooShort) {
+        alerts.push({
+          level: 'warning',
+          render: (
+            <span>
+              <Icon icon='alarm' /> {_('pubKeyTooShort')}
+              <ul>
+                <li>{_('longerCustomCertficate')}</li>
+                <li>{_('longerDefaultCertificate')}</li>
+              </ul>
+              <a
+                href='https://docs.xcp-ng.org/releases/release-8-3/#host-certificate-key-too-small-prevents-upgrade'
+                target='_blank'
+                rel='noreferrer'
+              >
+                <Icon icon='info' /> {_('clickLinkForDetails')}
+              </a>
+            </span>
+          ),
+        })
+      }
+
       if (!host.hvmCapable) {
         alerts.push({
           level: 'warning',
@@ -220,6 +262,17 @@ export default class HostItem extends Component {
                 ))}
               </ul>
             </div>
+          ),
+        })
+      }
+
+      if (mdadmHealth?.raid?.State !== undefined && !['clean', 'active'].includes(mdadmHealth.raid.State)) {
+        alerts.push({
+          level: 'danger',
+          render: (
+            <span>
+              <Icon icon='alarm' className='text-danger' /> {_('raidStateWarning', { state: mdadmHealth.raid.State })}
+            </span>
           ),
         })
       }

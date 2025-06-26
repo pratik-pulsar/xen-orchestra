@@ -1,64 +1,64 @@
 <template>
-  <TitleBar :icon="faDownload">{{ $t('deploy-xoa') }}</TitleBar>
+  <TitleBar :icon="faDownload">{{ t('deploy-xoa') }}</TitleBar>
   <div v-if="deploying" class="status">
     <img src="@/assets/xo.svg" width="300" alt="Xen Orchestra" />
 
     <!-- Error -->
     <template v-if="error !== undefined">
       <div>
-        <h2>{{ $t('xoa-deploy-failed') }}</h2>
+        <h2>{{ t('xoa-deploy-failed') }}</h2>
         <UiIcon :icon="faExclamationCircle" class="danger" />
       </div>
       <div class="error">
-        <strong>{{ $t('check-errors') }}</strong>
+        <strong>{{ t('check-errors') }}</strong>
         <UiRaw>{{ error }}</UiRaw>
       </div>
-      <UiButton :left-icon="faDownload" @click="resetValues()">
-        {{ $t('xoa-deploy-retry') }}
+      <UiButton size="medium" accent="brand" variant="primary" :left-icon="faDownload" @click="resetValues()">
+        {{ t('xoa-deploy-retry') }}
       </UiButton>
     </template>
 
     <!-- Success -->
     <template v-else-if="url !== undefined">
       <div>
-        <h2>{{ $t('xoa-deploy-successful') }}</h2>
+        <h2>{{ t('xoa-deploy-successful') }}</h2>
         <UiIcon :icon="faCircleCheck" class="success" />
       </div>
-      <UiButton :left-icon="faArrowUpRightFromSquare" @click="openXoa">
-        {{ $t('access-xoa') }}
+      <UiButton size="medium" accent="brand" variant="primary" :left-icon="faArrowUpRightFromSquare" @click="openXoa">
+        {{ t('access-xoa') }}
       </UiButton>
     </template>
 
     <!-- Deploying -->
     <template v-else>
       <div>
-        <h2>{{ $t('xoa-deploy') }}</h2>
+        <h2>{{ t('xoa-deploy') }}</h2>
         <!-- TODO: add progress bar -->
         <p>{{ status }}</p>
       </div>
       <p class="warning">
         <UiIcon :icon="faExclamationCircle" />
-        {{ $t('keep-page-open') }}
+        {{ t('keep-page-open') }}
       </p>
-      <UiButton :disabled="vmRef === undefined" color="error" level="secondary" @click="cancel()">
-        {{ $t('cancel') }}
+      <UiButton size="medium" :disabled="vmRef === undefined" accent="danger" variant="secondary" @click="cancel()">
+        {{ t('cancel') }}
       </UiButton>
     </template>
   </div>
 
-  <div v-else-if="isMobile" class="not-available">
-    <p>{{ $t('deploy-xoa-available-on-desktop') }}</p>
+  <div v-else-if="uiStore.isMobile" class="not-available">
+    <p>{{ t('deploy-xoa-available-on-desktop') }}</p>
   </div>
 
   <div v-else class="card-view">
     <UiCard>
       <form @submit.prevent="deploy">
-        <FormSection :label="$t('configuration')">
+        <FormSection :label="t('configuration')">
           <div class="row">
-            <FormInputWrapper :label="$t('storage')" :help="$t('n-gb-required', { n: REQUIRED_GB })">
+            <VtsInputWrapper :label="t('storage')" :message="t('n-gb-required', { n: REQUIRED_GB })">
               <FormSelect v-model="selectedSr" required>
                 <option disabled :value="undefined">
-                  {{ $t('select.storage') }}
+                  {{ t('select.storage') }}
                 </option>
                 <option
                   v-for="sr in filteredSrs"
@@ -68,134 +68,139 @@
                 >
                   {{ `${sr.name_label} -` }}
                   {{
-                    $t('n-gb-left', {
+                    t('n-gb-left', {
                       n: Math.round((sr.physical_size - sr.physical_utilisation) / 1024 ** 3),
                     })
                   }}
                   <template v-if="sr.physical_size - sr.physical_utilisation < REQUIRED_GB * 1024 ** 3">⚠️</template>
                 </option>
               </FormSelect>
-            </FormInputWrapper>
+            </VtsInputWrapper>
           </div>
           <div class="row">
-            <FormInputWrapper :label="$t('network')" required>
+            <VtsInputWrapper :label="t('network')">
               <FormSelect v-model="selectedNetwork" required>
                 <option disabled :value="undefined">
-                  {{ $t('select.network') }}
+                  {{ t('select.network') }}
                 </option>
                 <option v-for="network in filteredNetworks" :key="network.uuid" :value="network">
                   {{ network.name_label }}
                 </option>
               </FormSelect>
-            </FormInputWrapper>
+            </VtsInputWrapper>
+            <VtsInputWrapper
+              :label="t('deploy-xoa-custom-ntp-servers')"
+              learn-more-url="https://docs.xen-orchestra.com/xoa#setting-a-custom-ntp-server"
+            >
+              <FormInput v-model="ntp" placeholder="xxx.xxx.xxx.xxx" />
+            </VtsInputWrapper>
           </div>
           <div class="row">
-            <FormInputWrapper>
-              <div class="radio-group">
-                <label><FormRadio v-model="ipStrategy" value="static" />{{ $t('static-ip') }}</label>
-                <label><FormRadio v-model="ipStrategy" value="dhcp" />{{ $t('dhcp') }}</label>
-              </div>
-            </FormInputWrapper>
+            <VtsInputWrapper>
+              <UiRadioButtonGroup accent="brand">
+                <UiRadioButton v-model="ipStrategy" accent="brand" value="static">
+                  {{ t('static-ip') }}
+                </UiRadioButton>
+                <UiRadioButton v-model="ipStrategy" accent="brand" value="dhcp">
+                  {{ t('dhcp') }}
+                </UiRadioButton>
+              </UiRadioButtonGroup>
+            </VtsInputWrapper>
           </div>
           <div class="row">
-            <FormInputWrapper
-              :label="$t('xoa-ip')"
-              learn-more-url="https://xen-orchestra.com/docs/xoa.html#network-configuration"
+            <VtsInputWrapper
+              :label="t('xoa-ip')"
+              learn-more-url="https://docs.xen-orchestra.com/xoa#network-configuration"
             >
               <FormInput v-model="ip" :disabled="!requireIpConf" placeholder="xxx.xxx.xxx.xxx" />
-            </FormInputWrapper>
-            <FormInputWrapper
-              :label="$t('netmask')"
+            </VtsInputWrapper>
+            <VtsInputWrapper
+              :label="t('netmask')"
               learn-more-url="https://xen-orchestra.com/docs/xoa.html#network-configuration"
             >
               <FormInput v-model="netmask" :disabled="!requireIpConf" placeholder="255.255.255.0" />
-            </FormInputWrapper>
+            </VtsInputWrapper>
           </div>
           <div class="row">
-            <FormInputWrapper
-              :label="$t('dns')"
+            <VtsInputWrapper
+              :label="t('dns')"
               learn-more-url="https://xen-orchestra.com/docs/xoa.html#network-configuration"
             >
               <FormInput v-model="dns" :disabled="!requireIpConf" placeholder="8.8.8.8" />
-            </FormInputWrapper>
-            <FormInputWrapper
-              :label="$t('gateway')"
+            </VtsInputWrapper>
+            <VtsInputWrapper
+              :label="t('gateway')"
               learn-more-url="https://xen-orchestra.com/docs/xoa.html#network-configuration"
             >
               <FormInput v-model="gateway" :disabled="!requireIpConf" placeholder="xxx.xxx.xxx.xxx" />
-            </FormInputWrapper>
+            </VtsInputWrapper>
           </div>
         </FormSection>
 
-        <FormSection :label="$t('xoa-admin-account')">
+        <FormSection :label="t('xoa-admin-account')">
           <div class="row">
-            <FormInputWrapper
-              :label="$t('admin-login')"
+            <VtsInputWrapper
+              :label="t('admin-login')"
               learn-more-url="https://xen-orchestra.com/docs/xoa.html#default-xo-account"
             >
               <FormInput v-model="xoaUser" required placeholder="email@example.com" />
-            </FormInputWrapper>
+            </VtsInputWrapper>
           </div>
           <div class="row">
-            <FormInputWrapper
-              :label="$t('admin-password')"
+            <VtsInputWrapper
+              :label="t('admin-password')"
               learn-more-url="https://xen-orchestra.com/docs/xoa.html#default-xo-account"
             >
-              <FormInput v-model="xoaPwd" type="password" required :placeholder="$t('password')" />
-            </FormInputWrapper>
-            <FormInputWrapper
-              :label="$t('admin-password-confirm')"
+              <FormInput v-model="xoaPwd" type="password" required :placeholder="t('password')" />
+            </VtsInputWrapper>
+            <VtsInputWrapper
+              :label="t('admin-password-confirm')"
               learn-more-url="https://xen-orchestra.com/docs/xoa.html#default-xo-account"
             >
-              <FormInput v-model="xoaPwdConfirm" type="password" required :placeholder="$t('password')" />
-            </FormInputWrapper>
+              <FormInput v-model="xoaPwdConfirm" type="password" required :placeholder="t('password')" />
+            </VtsInputWrapper>
           </div>
         </FormSection>
 
-        <FormSection :label="$t('xoa-ssh-account')">
+        <FormSection :label="t('xoa-ssh-account')">
           <div class="row">
-            <FormInputWrapper :label="$t('ssh-account')">
-              <label
-                ><span>{{ $t('disabled') }}</span
-                ><FormToggle v-model="enableSshAccount" /><span>{{ $t('enabled') }}</span></label
-              >
-            </FormInputWrapper>
+            <UiToggle v-model="enableSshAccount">{{ t('ssh-account') }}</UiToggle>
           </div>
           <div class="row">
-            <FormInputWrapper :label="$t('ssh-login')">
+            <VtsInputWrapper :label="t('ssh-login')">
               <FormInput value="xoa" placeholder="xoa" disabled />
-            </FormInputWrapper>
+            </VtsInputWrapper>
           </div>
           <div class="row">
-            <FormInputWrapper :label="$t('ssh-password')">
+            <VtsInputWrapper :label="t('ssh-password')">
               <FormInput
                 v-model="sshPwd"
                 type="password"
-                :placeholder="$t('password')"
+                :placeholder="t('password')"
                 :disabled="!enableSshAccount"
                 :required="enableSshAccount"
               />
-            </FormInputWrapper>
-            <FormInputWrapper :label="$t('ssh-password-confirm')">
+            </VtsInputWrapper>
+            <VtsInputWrapper :label="t('ssh-password-confirm')">
               <FormInput
                 v-model="sshPwdConfirm"
                 type="password"
-                :placeholder="$t('password')"
+                :placeholder="t('password')"
                 :disabled="!enableSshAccount"
                 :required="enableSshAccount"
               />
-            </FormInputWrapper>
+            </VtsInputWrapper>
           </div>
         </FormSection>
 
-        <ButtonGroup>
-          <UiButton level="secondary" @click="router.back()">
-            {{ $t('cancel') }}
+        <VtsButtonGroup>
+          <UiButton size="medium" accent="brand" variant="secondary" @click="router.back()">
+            {{ t('cancel') }}
           </UiButton>
-          <UiButton type="submit">
-            {{ $t('deploy') }}
+          <UiButton size="medium" accent="brand" variant="primary" type="submit">
+            {{ t('deploy') }}
           </UiButton>
-        </ButtonGroup>
+        </VtsButtonGroup>
       </form>
     </UiCard>
   </div>
@@ -203,11 +208,8 @@
 
 <script lang="ts" setup>
 import FormInput from '@/components/form/FormInput.vue'
-import FormInputWrapper from '@/components/form/FormInputWrapper.vue'
-import FormRadio from '@/components/form/FormRadio.vue'
 import FormSection from '@/components/form/FormSection.vue'
 import FormSelect from '@/components/form/FormSelect.vue'
-import FormToggle from '@/components/form/FormToggle.vue'
 import TitleBar from '@/components/TitleBar.vue'
 import UiIcon from '@/components/ui/icon/UiIcon.vue'
 import UiCard from '@/components/ui/UiCard.vue'
@@ -218,8 +220,12 @@ import { usePageTitleStore } from '@/stores/page-title.store'
 import { useNetworkStore } from '@/stores/xen-api/network.store'
 import { useSrStore } from '@/stores/xen-api/sr.store'
 import { useXenApiStore } from '@/stores/xen-api.store'
-import ButtonGroup from '@core/components/button/ButtonGroup.vue'
-import UiButton from '@core/components/button/UiButton.vue'
+import VtsButtonGroup from '@core/components/button-group/VtsButtonGroup.vue'
+import VtsInputWrapper from '@core/components/input-wrapper/VtsInputWrapper.vue'
+import UiButton from '@core/components/ui/button/UiButton.vue'
+import UiRadioButton from '@core/components/ui/radio-button/UiRadioButton.vue'
+import UiRadioButtonGroup from '@core/components/ui/radio-button-group/UiRadioButtonGroup.vue'
+import UiToggle from '@core/components/ui/toggle/UiToggle.vue'
 import { useUiStore } from '@core/stores/ui.store'
 import {
   faArrowUpRightFromSquare,
@@ -227,7 +233,6 @@ import {
   faDownload,
   faExclamationCircle,
 } from '@fortawesome/free-solid-svg-icons'
-import { storeToRefs } from 'pinia'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
@@ -245,7 +250,6 @@ const invalidField = (message: string) =>
   })
 
 const uiStore = useUiStore()
-const { isMobile } = storeToRefs(uiStore)
 
 const xapi = useXenApiStore().getXapi()
 
@@ -288,6 +292,7 @@ const openXoa = () => {
 
 const selectedSr = ref<XenApiSr>()
 const selectedNetwork = ref<XenApiNetwork>()
+const ntp = ref('')
 const ipStrategy = ref<'static' | 'dhcp'>('dhcp')
 const requireIpConf = computed(() => ipStrategy.value === 'static')
 
@@ -349,7 +354,7 @@ async function deploy() {
 
     vmRef.value = (
       (await xapi.call('VM.import', [
-        'http://xoa.io:8888/',
+        'http://xoa.io/xva',
         selectedSr.value.$ref,
         false, // full_restore
         false, // force
@@ -390,6 +395,10 @@ async function deploy() {
         JSON.stringify({ email: xoaUser.value, password: xoaPwd.value }),
       ]),
     ]
+
+    if (ntp.value !== '') {
+      promises.push(xapi.call('VM.add_to_xenstore_data', [vmRef.value, 'vm-data/ntp', ntp.value]))
+    }
 
     // TODO: add host to servers with session token?
 
@@ -484,32 +493,16 @@ async function cancel() {
   display: flex;
   flex-wrap: wrap;
   column-gap: 10rem;
-}
+  margin-bottom: 2.4rem;
 
-.form-toggle {
-  margin: 0 1.5rem;
-}
-
-.form-input-wrapper {
-  flex-grow: 1;
-  min-width: 60rem;
+  & > div {
+    flex: 1;
+    max-width: calc(50% - 4rem);
+  }
 }
 
 .input-container * {
   vertical-align: middle;
-}
-
-.radio-group {
-  display: flex;
-  flex-direction: row;
-  margin: 1.67rem 0;
-  & > * {
-    min-width: 20rem;
-  }
-}
-
-.form-radio {
-  margin-right: 1rem;
 }
 
 .not-available,
@@ -520,13 +513,15 @@ async function cancel() {
   justify-content: center;
   align-items: center;
   min-height: 76.5vh;
-  color: var(--color-purple-base);
+  color: var(--color-brand-txt-base);
   text-align: center;
   padding: 5rem;
   margin: auto;
+
   h2 {
     margin-bottom: 1rem;
   }
+
   * {
     max-width: 100%;
   }
@@ -535,17 +530,19 @@ async function cancel() {
 .not-available {
   font-size: 2rem;
 }
+
 .status {
-  color: var(--color-grey-100);
+  color: var(--color-neutral-txt-primary);
 }
 
 .success {
-  color: var(--color-green-base);
+  color: var(--color-success-txt-base);
 }
 
 .danger {
-  color: var(--color-red-base);
+  color: var(--color-danger-txt-base);
 }
+
 .success,
 .danger {
   &.ui-icon {
@@ -559,7 +556,8 @@ async function cancel() {
   text-align: left;
   gap: 0.5em;
 }
+
 .warning {
-  color: var(--color-orange-base);
+  color: var(--color-warning-txt-base);
 }
 </style>

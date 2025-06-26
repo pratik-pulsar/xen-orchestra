@@ -4,24 +4,25 @@
  -->
 <template>
   <div class="dropdown-title">
-    <UiIcon :icon />
+    <VtsIcon :icon accent="current" />
     <div class="label c3 semi-bold">
       <slot />
     </div>
     <div v-if="onToggleSelectAll" class="buttons">
       <span v-if="selected !== 'all'" @click="emit('toggleSelectAll', true)">
-        {{ $t('core.select.all') }}
+        {{ t('core.select.all') }}
       </span>
       <span v-if="selected !== 'none'" @click="emit('toggleSelectAll', false)">
-        {{ $t('core.select.none') }}
+        {{ t('core.select.none') }}
       </span>
     </div>
   </div>
 </template>
 
 <script lang="ts" setup>
-import UiIcon from '@core/components/icon/UiIcon.vue'
+import VtsIcon from '@core/components/icon/VtsIcon.vue'
 import type { IconDefinition } from '@fortawesome/fontawesome-common-types'
+import { useI18n } from 'vue-i18n'
 
 withDefaults(
   defineProps<{
@@ -35,6 +36,8 @@ withDefaults(
 const emit = defineEmits<{
   toggleSelectAll: [value: boolean]
 }>()
+
+const { t } = useI18n()
 </script>
 
 <style lang="postcss" scoped>
@@ -44,7 +47,7 @@ const emit = defineEmits<{
   padding: 0.4rem 1.6rem;
   gap: 0.8rem;
   height: 2.6rem;
-  background: var(--background-color-secondary);
+  background: var(--color-neutral-background-secondary);
 }
 
 .buttons {
@@ -55,14 +58,14 @@ const emit = defineEmits<{
   span {
     cursor: pointer;
     text-decoration: underline;
-    color: var(--color-purple-base);
+    color: var(--color-info-txt-base);
 
     &:hover {
-      color: var(--color-purple-l20);
+      color: var(--color-info-item-hover);
     }
 
     &:active {
-      color: var(--color-purple-l40);
+      color: var(--color-info-item-active);
     }
   }
 }

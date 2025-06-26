@@ -26,7 +26,7 @@ Usage:
       Accept invalid certificate (e.g. self-signed).
 
     --url <url>, -u <url>
-      Specify an XO instance instance to use for the command instead of relying
+      Specify an XO instance to use for the command instead of relying
       on the one registered.
 
       The URL must include credentials: https://token@xo.company.net/
@@ -99,7 +99,7 @@ Usage:
     filter=<filter>
       List only objects that match the filter
 
-      Syntax: https://xen-orchestra.com/docs/manage_infrastructure.html#filter-syntax
+      Syntax: https://docs.xen-orchestra.com/manage_infrastructure#filter-syntax
 
     limit=<limit>
       Maximum number of objects to list, e.g. `limit=10`
@@ -150,7 +150,7 @@ Usage:
       Full path of the action to execute
 
     <name>=<value>...
-      Paramaters to pass to the action
+      Parameters to pass to the action
 
     Examples:
       xo-cli rest post tasks/<task id>/actions/abort
@@ -167,6 +167,13 @@ Usage:
 
     Examples:
       xo-cli rest put vms/<vm id>/tags/<tag>
+
+  xo-cli watch [--ndjson]
+    Watch and display notifications received from the XO instance
+
+    --ndjson
+      Prints the result in newline-delimited JSON format
+
 ```
 
 #### Register your XO instance

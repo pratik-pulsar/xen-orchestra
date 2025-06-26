@@ -453,6 +453,10 @@
     @extend .fa;
     @extend .fa-tachometer;
   }
+  &-bios-version {
+    @extend .fa;
+    @extend .fa-microchip;
+  }
 
   // VM
   &-vm {
@@ -960,6 +964,10 @@
     &-overview {
       @extend .fa;
       @extend .fa-eye;
+    }
+    &-sequence {
+      @extend .fa;
+      @extend .fa-list-ol;
     }
     &-new {
       @extend .fa;

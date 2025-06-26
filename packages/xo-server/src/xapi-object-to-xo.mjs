@@ -4,6 +4,8 @@ import Obfuscate from '@vates/obfuscate'
 import * as xoData from '@xen-orchestra/xapi/xoData.mjs'
 import ensureArray from './_ensureArray.mjs'
 import normalizeVmNetworks from './_normalizeVmNetworks.mjs'
+import semver from 'semver'
+import { compareVersions, validate as validateVersion } from 'compare-versions'
 import { createLogger } from '@xen-orchestra/log'
 import { extractIpFromVmNetworks } from './_extractIpFromVmNetworks.mjs'
 import { extractProperty, forEach, isEmpty, mapFilter, parseXml } from './utils.mjs'
@@ -92,6 +94,85 @@ const getVmGuestToolsProps = vm => {
   }
 }
 
+// ***** May 2025 - Xen Security Advisory XSA-468 - Windows PV drivers vulnerability *****
+
+// Vendor → (driver → version)
+const XSA468_VULNERABLE_VERSIONS = {
+  Xen_Project: {
+    xencons: '9.1.0.2',
+    xeniface: '9.1.0.0',
+    xenbus: '9.1.0.1',
+  },
+  Amazon_Inc_: {
+    xeniface: '8.3.0',
+  },
+  XenServer: {
+    xeniface: '9.1.12.93',
+    xenbus: '9.1.11.114',
+  },
+  Citrix: {
+    xeniface: '9.1.1.11',
+    xenbus: '9.1.2.14',
+  },
+  XCP_ng: {
+    xencons: '9.0.9048.9047',
+    xeniface: '9.0.9048.9047',
+    xenbus: '9.0.9048.9047',
+  },
+}
+const isVmVulnerable_XSA468 = vm => {
+  if (vm.platform?.device_id !== '0002') {
+    // Not a Windows VM
+    return false
+  }
+
+  const guestMetrics = vm.$guest_metrics
+  if (guestMetrics === undefined) {
+    return false
+  }
+
+  if (!guestMetrics.PV_drivers_detected) {
+    // No PV drivers installed: no vulnerability
+    return false
+  }
+
+  const pvDriversVersion = guestMetrics.PV_drivers_version
+  let versionDetected = false
+  for (const [key, value] of Object.entries(pvDriversVersion)) {
+    if (['major', 'minor', 'micro', 'build'].includes(key)) {
+      continue
+    }
+
+    const [vendor, version] = value.split(' ')
+    if (!validateVersion(version)) {
+      warn(`Invalid version number for ${vendor}: ${key} ${version}`)
+      continue
+    }
+
+    const vendorVulnerableVersion = XSA468_VULNERABLE_VERSIONS[vendor]?.[key]
+    if (vendorVulnerableVersion === undefined) {
+      continue
+    }
+
+    versionDetected = true
+
+    try {
+      if (compareVersions(version, vendorVulnerableVersion) <= 0) {
+        // PV drivers installed and vulnerable version detected
+        return { reason: 'pv-driver-version-vulnerable', driver: key, version }
+      }
+    } catch (err) {
+      warn(err)
+    }
+  }
+
+  // - PV drivers installed and could check safe versions: no vulnerability
+  // - PV drivers installed but could not check versions: potential vulnerability
+  return versionDetected ? false : { reason: 'no-pv-drivers-detected' }
+}
+
+// ***************************************************************************************
+
 // ===================================================================
 
 const TRANSFORMS = {
@@ -121,6 +202,7 @@ const TRANSFORMS = {
       suspendSr: link(obj, 'suspend_image_SR'),
       zstdSupported: obj.restrictions.restrict_zstd_export === 'false',
       vtpmSupported: obj.restrictions.restrict_vtpm === 'false',
+      platform_version: obj.$master.software_version.platform_version,
 
       // TODO
       // - ? networks = networksByPool.items[pool.id] (network.$pool.id)
@@ -398,7 +480,15 @@ const TRANSFORMS = {
           version: version && parseXml(version).docker_version,
         }
       })(),
+      // deprecated, use isNestedVirtEnabled instead
       expNestedHvm: obj.platform['exp-nested-hvm'] === 'true',
+      isNestedVirtEnabled: semver.satisfies(String(obj.$pool.$master.software_version.platform_version), '>=3.4')
+        ? obj.platform['nested-virt'] === 'true'
+        : obj.platform['exp-nested-hvm'] === 'true',
+      vulnerabilities:
+        obj.is_a_template || obj.is_a_snapshot || obj.is_control_domain
+          ? undefined
+          : { xsa468: isVmVulnerable_XSA468(obj) },
       viridian: obj.platform.viridian === 'true',
       mainIpAddress: extractIpFromVmNetworks(guestMetrics?.networks),
       high_availability: obj.ha_restart_priority,
@@ -476,7 +566,9 @@ const TRANSFORMS = {
     }
 
     if (isHvm) {
-      ;({ vga: vm.vga = 'cirrus', videoram: vm.videoram = 4 } = obj.platform)
+      const { vga, videoram } = obj.platform
+      vm.vga = vga ?? 'cirrus'
+      vm.videoram = +(videoram ?? 4)
     }
 
     const coresPerSocket = obj.platform['cores-per-socket']
@@ -529,12 +621,15 @@ const TRANSFORMS = {
       }
     }
 
-    let tmp
-    if ((tmp = obj.VCPUs_params)) {
-      tmp.cap && (vm.cpuCap = +tmp.cap)
-      tmp.mask && (vm.cpuMask = tmp.mask.split(',').map(_ => +_))
-      tmp.weight && (vm.cpuWeight = +tmp.weight)
+    const { cap, mask, weight } = obj.VCPUs_params ?? {}
+    if (cap != null) {
+      vm.cpuCap = +cap
     }
+    if (weight != null) {
+      vm.cpuWeight = +weight
+    }
+
+    vm.cpuMask = mask?.split(',').map(_ => +_)
 
     if (!isHvm) {
       vm.PV_args = obj.PV_args
@@ -556,7 +651,7 @@ const TRANSFORMS = {
       physical_usage: +obj.physical_utilisation,
 
       allocationStrategy:
-        srType === 'linstor' ? obj.$PBDs[0]?.device_config.provisioning ?? 'unknown' : ALLOCATION_BY_TYPE[srType],
+        srType === 'linstor' ? (obj.$PBDs[0]?.device_config.provisioning ?? 'unknown') : ALLOCATION_BY_TYPE[srType],
       current_operations: obj.current_operations,
       inMaintenanceMode: obj.other_config['xo:maintenanceState'] !== undefined,
       name_description: obj.name_description,
@@ -572,6 +667,23 @@ const TRANSFORMS = {
 
       $container: obj.shared || !obj.$PBDs[0] ? link(obj, 'pool') : link(obj.$PBDs[0], 'host'),
       $PBDs: link(obj, 'PBDs'),
+    }
+  },
+
+  sm(obj) {
+    return {
+      type: 'SM',
+      uuid: obj.uuid,
+      name_description: obj.name_description,
+      name_label: obj.name_label,
+
+      SM_type: obj.type,
+      configuration: obj.configuration,
+      vendor: obj.vendor,
+      features: obj.features,
+      driver_filename: obj.driver_filename,
+      required_cluster_stack: obj.required_cluster_stack,
+      supported_image_formats: obj.supported_image_formats ?? [],
     }
   },
 
@@ -593,13 +705,21 @@ const TRANSFORMS = {
 
   pif(obj) {
     const metrics = obj.$metrics
+    const isBondMaster = !isEmpty(obj.bond_master_of)
+    const isBondSlave = obj.bond_slave_of !== 'OpaqueRef:NULL'
+
+    // Why is `bond_master_of` a list? Getting the first one in the list seems to be the right way:
+    // https://github.com/xcp-ng/xenadmin/blob/4a9d971dadd04c62f7f77f5ccf1089b4aaa59639/XenModel/XenAPI-Extensions/PIF.cs#L246-L252
+    const bond = isBondMaster ? obj.$bond_master_of[0] : isBondSlave ? obj.$bond_slave_of : undefined
 
     return {
       type: 'PIF',
 
       attached: Boolean(obj.currently_attached),
-      isBondMaster: !isEmpty(obj.bond_master_of),
-      isBondSlave: obj.bond_slave_of !== 'OpaqueRef:NULL',
+      isBondMaster,
+      isBondSlave,
+      bondMaster: isBondSlave ? link(bond, 'master') : undefined,
+      bondSlaves: isBondMaster ? link(bond, 'slaves') : undefined,
       device: obj.device,
       deviceName: metrics && metrics.device_name,
       dns: obj.DNS,
@@ -636,6 +756,7 @@ const TRANSFORMS = {
       name_description: obj.name_description,
       name_label: obj.name_label,
       parent: obj.sm_config['vhd-parent'],
+      image_format: obj.sm_config['image-format'],
       size: +obj.virtual_size,
       snapshots: link(obj, 'snapshots'),
       tags: obj.tags,
@@ -749,9 +870,7 @@ const TRANSFORMS = {
     if (obj.other_config.applies_to) {
       const object = obj.$xapi.getObject(obj.other_config.applies_to, undefined)
       if (object === undefined) {
-        debug(
-          `Unknown other_config.applies_to reference ${obj.other_config.applies_to} in task ${obj.$id}`
-        )
+        debug(`Unknown other_config.applies_to reference ${obj.other_config.applies_to} in task ${obj.$id}`)
       } else {
         applies_to = object.uuid
       }
@@ -955,6 +1074,16 @@ const TRANSFORMS = {
 
       PUSBs: link(obj, 'PUSBs'),
       VUSBs: link(obj, 'VUSBs'),
+    }
+  },
+
+  // -----------------------------------------------------------------
+
+  bond(obj) {
+    return {
+      type: 'bond',
+      master: link(obj, 'master'),
+      mode: obj.mode,
     }
   },
 }

@@ -11,15 +11,18 @@ import { MixinXapiWriter } from './_MixinXapiWriter.mjs'
 import { listReplicatedVms } from './_listReplicatedVms.mjs'
 import { COPY_OF, setVmOtherConfig, BASE_DELTA_VDI } from '../../_otherConfig.mjs'
 
-import assert from 'node:assert'
 export class IncrementalXapiWriter extends MixinXapiWriter(AbstractIncrementalWriter) {
   async checkBaseVdis(baseUuidToSrcVdi) {
     const sr = this._sr
+    if (baseUuidToSrcVdi.size === 0) {
+      // searching for the vdis is expensive
+      // don't do it if there is nothing to find
+      return
+    }
 
     // @todo use an index if possible
-    // @todo : this seems similare to decorateVmMetadata
-
-    const replicatedVdis = sr.$VDIs 
+    // @todo : this seems similar to decorateVmMetadata
+    const replicatedVdis = sr.$VDIs
       .filter(vdi => {
         // REPLICATED_TO_SR_UUID is not used here since we are already filtering from sr.$VDIs
         return baseUuidToSrcVdi.has(vdi?.other_config[COPY_OF])
@@ -103,11 +106,10 @@ export class IncrementalXapiWriter extends MixinXapiWriter(AbstractIncrementalWr
       .filter(_ => !!_)
     // @todo use index ?
 
-    const replicatedVdis = sr.$VDIs
-      .filter(vdi => {
-        // REPLICATED_TO_SR_UUID is not used here since we are already filtering from sr.$VDIs
-        return sourceVdiUuids.includes(vdi?.other_config[COPY_OF])
-      })
+    const replicatedVdis = sr.$VDIs.filter(vdi => {
+      // REPLICATED_TO_SR_UUID is not used here since we are already filtering from sr.$VDIs
+      return sourceVdiUuids.includes(vdi?.other_config[COPY_OF])
+    })
 
     Object.values(backup.vdis).forEach(vdi => {
       vdi.other_config[COPY_OF] = vdi.uuid
@@ -115,9 +117,10 @@ export class IncrementalXapiWriter extends MixinXapiWriter(AbstractIncrementalWr
         const baseReplicatedTo = replicatedVdis.find(
           replicatedVdi => replicatedVdi.other_config[COPY_OF] === vdi.other_config[BASE_DELTA_VDI]
         )
-        assert.notStrictEqual(baseReplicatedTo, undefined)
+        // baseReplicatedTo can be undefined if a new disk is added and other are already replicated
         vdi.baseVdi = baseReplicatedTo
       } else {
+        // first replication of this disk
         vdi.baseVdi = undefined
       }
       // ensure the VDI are created on the target SR
@@ -127,7 +130,7 @@ export class IncrementalXapiWriter extends MixinXapiWriter(AbstractIncrementalWr
     return backup
   }
 
-  async _transfer({ timestamp, deltaExport, sizeContainers, vm }) {
+  async _transfer({ timestamp, deltaExport, vm }) {
     const { _warmMigration } = this._settings
     const sr = this._sr
     const job = this._job
@@ -138,8 +141,12 @@ export class IncrementalXapiWriter extends MixinXapiWriter(AbstractIncrementalWr
     let targetVmRef
     await Task.run({ name: 'transfer' }, async () => {
       targetVmRef = await importIncrementalVm(this.#decorateVmMetadata(deltaExport), sr)
+      // size is mandatory to ensure the task have the right data
       return {
-        size: Object.values(sizeContainers).reduce((sum, { size }) => sum + size, 0),
+        size: Object.values(deltaExport.disks).reduce(
+          (sum, disk) => sum + disk.getNbGeneratedBlock() * disk.getBlockSize(),
+          0
+        ),
       }
     })
     this._targetVmRef = targetVmRef

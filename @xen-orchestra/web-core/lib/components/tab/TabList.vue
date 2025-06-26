@@ -6,17 +6,13 @@
 </template>
 
 <script lang="ts" setup>
-import { useContext } from '@core/composables/context.composable'
-import { DisabledContext } from '@core/context'
+import { useDisabled } from '@core/composables/disabled.composable'
 
-const props = withDefaults(
-  defineProps<{
-    disabled?: boolean
-  }>(),
-  { disabled: undefined }
-)
+const props = defineProps<{
+  disabled?: boolean
+}>()
 
-useContext(DisabledContext, () => props.disabled)
+useDisabled(() => props.disabled)
 </script>
 
 <style lang="postcss" scoped>
@@ -24,8 +20,8 @@ useContext(DisabledContext, () => props.disabled)
   display: flex;
   align-items: stretch;
   height: 5rem;
-  border-bottom: 1px solid var(--color-grey-500);
-  background-color: var(--background-color-primary);
+  border-bottom: 1px solid var(--color-neutral-border);
+  background-color: var(--color-neutral-background-primary);
   max-width: 100%;
   overflow: auto;
   flex-shrink: 0;

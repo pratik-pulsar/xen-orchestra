@@ -3,6 +3,7 @@ import _, { messages } from 'intl'
 import decorate from 'apply-decorators'
 import React from 'react'
 import { Container } from 'grid'
+import { compareVersions } from 'compare-versions'
 import { createLogger } from '@xen-orchestra/log'
 import { get } from '@xen-orchestra/defined'
 import { injectIntl } from 'react-intl'
@@ -139,7 +140,7 @@ export default decorate([
         sr =>
           sr.$pool === get(() => value.pool.id) && isSrWritable(sr),
       versionList: async () => {
-        const res = await fetch('https://api.github.com/repos/kubernetes/kubernetes/releases')
+        const res = await fetch('https://api.github.com/repos/canonical/microk8s/releases')
         if (res.ok) {
           const rawList = await res.json()
           const versionList = rawList
@@ -148,6 +149,7 @@ export default decorate([
               label: tag_name,
               value: tag_name.slice(1),
             }))
+            .sort(({ value: a }, { value: b }) => -compareVersions(a, b))
           return versionList
         } else {
           logger.error('HTTP response: ' + res.status)

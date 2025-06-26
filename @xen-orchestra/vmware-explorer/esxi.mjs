@@ -3,8 +3,7 @@ import { createLogger } from '@xen-orchestra/log'
 import { dirname } from 'node:path'
 import { EventEmitter } from 'node:events'
 import { strictEqual, notStrictEqual } from 'node:assert'
-import fetch from 'node-fetch'
-import https from 'https'
+import { Agent } from 'undici'
 
 import parseVmdk from './parsers/vmdk.mjs'
 import parseVmsd from './parsers/vmsd.mjs'
@@ -29,8 +28,10 @@ export default class Esxi extends EventEmitter {
     this.#user = user
     this.#password = password
     if (!sslVerify) {
-      this.#httpsAgent = new https.Agent({
-        rejectUnauthorized: false,
+      this.#httpsAgent = new Agent({
+        connect: {
+          rejectUnauthorized: false,
+        },
       })
     }
 
@@ -58,6 +59,9 @@ export default class Esxi extends EventEmitter {
     const res = await this.search('Datacenter', ['name', 'datastore'])
     await Promise.all(
       Object.values(res).map(async ({ datastore, name }) => {
+        if (datastore.ManagedObjectReference === undefined) {
+          return
+        }
         await Promise.all(
           datastore.ManagedObjectReference.map(async ({ $value }) => {
             // get the datastore name
@@ -97,7 +101,7 @@ export default class Esxi extends EventEmitter {
       headers.Authorization = 'Basic ' + Buffer.from(this.#user + ':' + this.#password).toString('base64')
     }
     const res = await fetch(url, {
-      agent: this.#httpsAgent,
+      dispatcher: this.#httpsAgent,
       method: 'GET',
       headers,
       highWaterMark: 10 * 1024 * 1024,
@@ -107,11 +111,8 @@ export default class Esxi extends EventEmitter {
       error.cause = res
       throw error
     }
-    if (res.headers.raw()['set-cookie']) {
-      this.#cookies = res.headers
-        .raw()
-        ['set-cookie'].map(cookie => cookie.split(';')[0])
-        .join('; ')
+    if (res.headers['set-cookie']) {
+      this.#cookies = res.headers['set-cookie'].map(cookie => cookie.split(';')[0]).join('; ')
     }
     return res
   }
@@ -378,7 +379,7 @@ export default class Esxi extends EventEmitter {
         }
       }
     } catch (error) {
-      // no vmsd file :fall back to a full withou snapshots
+      // no vmsd file :fall back to a full without snapshots
     }
     return {
       name_label: config.name[0],
@@ -400,13 +401,14 @@ export default class Esxi extends EventEmitter {
     const taskId = res.returnval.$value
     let state = 'running'
     let info
-    for (let i = 0; i < 60 && state === 'running'; i++) {
+    for (let i = 0; i < 60; i++) {
       // https://developer.vmware.com/apis/1720/
       info = await this.fetchProperty('Task', taskId, 'info')
       state = info.state[0]
-      if (state === 'running') {
-        await new Promise(resolve => setTimeout(resolve, 1000))
+      if (state === 'success') {
+        break
       }
+      await new Promise(resolve => setTimeout(resolve, 1000))
     }
     strictEqual(state, 'success', info.error ?? `fail to power off vm ${vmId}, state:${state}`)
     return info
@@ -425,7 +427,7 @@ export default class Esxi extends EventEmitter {
         Cookie: this.#client.authCookie.cookies,
         SOAPAction: '"urn:vim25/6.0"', // mandatory to have an answer when asking for httpNfcLease
       },
-      agent: this.#httpsAgent,
+      dispatcher: this.#httpsAgent,
       body: `<?xml version="1.0" encoding="UTF-8"?>
         <soapenv:Envelope 
           xmlns:soapenc="http://schemas.xmlsoap.org/soap/encoding/" 
@@ -473,9 +475,12 @@ export default class Esxi extends EventEmitter {
       disk = disk[0]
       // filter ram/cdrom/..
       if (disk === 'true') {
-        // the url returned are in the form of https://*/ follower by a short lived link, default 5mn
         const fullUrl = new URL(url)
-        fullUrl.host = this.#host
+        if (url.indexOf('/*/') > 0) {
+          // the url returned can be in the form of https://*/ followed by a short-lived link, default 5mn
+          // in this case, use the vsphere ip/name
+          fullUrl.host = this.#host
+        }
         const vmdkres = await this.#fetch(fullUrl)
         const stream = vmdkres.body
         streams[targetId] = stream

@@ -133,7 +133,7 @@ class XsClientId extends Component {
         <Row>
           <Col smallSize={2}>
             <strong>{_('xsClientId')}</strong>{' '}
-            <a href='https://xen-orchestra.com/docs/updater.html#xenserver-updates' target='_blank' rel='noreferrer'>
+            <a href='https://docs.xen-orchestra.com/updater#xenserver-updates' target='_blank' rel='noreferrer'>
               <Icon icon='info' />
             </a>
           </Col>
@@ -428,7 +428,7 @@ const UserAuthTokens = addSubscriptions({
     subscribeUserAuthTokens(tokens => {
       cb(
         tokens.map(token => {
-          // find and inject last_use_ip from last_uses dictionnary
+          // find and inject last_use_ip from last_uses dictionary
           const { last_uses } = token
           if (last_uses !== undefined) {
             const ips = Object.keys(last_uses)
@@ -592,11 +592,15 @@ export default class User extends Component {
                 <option value='it'>Italiano</option>
                 <option value='pl'>Polski</option>
                 <option value='pt'>Português</option>
-                <option value='se'>Svenska</option>
+                <option value='sv'>Svenska</option>
                 <option value='tr'>Türkçe</option>
                 <option value='he'>עברי</option>
                 <option value='zh'>简体中文</option>
                 <option value='ja'>日本語</option>
+                <option value='de'>Deutsch - XO6</option>
+                <option value='cs'>čeština - XO6</option>
+                <option value='uk'>Українська - XO6</option>
+                <option value='nl'>Nederlands - XO6</option>
               </select>
             </Col>
           </Row>

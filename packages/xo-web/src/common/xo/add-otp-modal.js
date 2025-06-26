@@ -1,5 +1,6 @@
 import _ from '../intl'
 import authenticator from '../otp-authenticator.js'
+import Copiable from '../copiable/index.js'
 import qrcode from 'qrcode'
 import PropTypes from 'prop-types'
 import React, { PureComponent } from 'react'
@@ -38,10 +39,10 @@ export class AddOtpModal extends PureComponent {
         <p>{_('addOtpConfirmMessage')}</p>
         <Row>
           <Col size={4}>
-            <strong>{_('password')}</strong>
+            <strong>{_('OtpCode')}</strong>
           </Col>
           <Col size={8}>
-            <input className='form-control' onChange={this._saveValue} />
+            <input className='form-control' inputMode='numeric' onChange={this._saveValue} />
             {this.value === this.props.failedToken && <p className='text-warning'>{_('addOtpInvalidPassword')}</p>}
           </Col>
         </Row>
@@ -51,6 +52,9 @@ export class AddOtpModal extends PureComponent {
             <img src={qrcode} alt='qrcode' />
           </div>
         )}
+        <Copiable tagName='div' className='text-xs-center'>
+          {this.props.secret}
+        </Copiable>
       </div>
     )
   }

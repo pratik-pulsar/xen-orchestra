@@ -1,13 +1,13 @@
 <!-- v1.0 -->
 <template>
   <div :class="{ active, disabled }" class="menu-trigger">
-    <UiIcon :busy="busy" :icon="icon" />
+    <VtsIcon :busy :icon accent="current" />
     <slot />
   </div>
 </template>
 
 <script lang="ts" setup>
-import UiIcon from '@core/components/icon/UiIcon.vue'
+import VtsIcon from '@core/components/icon/VtsIcon.vue'
 import type { IconDefinition } from '@fortawesome/fontawesome-common-types'
 
 defineProps<{
@@ -30,22 +30,22 @@ defineProps<{
   white-space: nowrap;
   border-radius: 0.8rem;
   gap: 1rem;
-  background-color: var(--color-grey-600);
+  background-color: var(--color-neutral-background-primary);
 
   &.disabled {
-    color: var(--color-grey-500);
+    color: var(--color-neutral-txt-secondary);
   }
 
   &:not(.disabled) {
     cursor: pointer;
 
     &:hover {
-      background-color: var(--background-color-purple-10);
+      background-color: var(--color-brand-background-selected);
     }
 
     &:active,
     &.active {
-      background-color: var(--background-color-purple-20);
+      background-color: var(--color-brand-background-hover);
     }
   }
 }

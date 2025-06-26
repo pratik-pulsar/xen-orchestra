@@ -65,12 +65,13 @@ import {
   XEN_VIDEORAM_VALUES,
 } from 'xo'
 import { createGetObject, createGetObjectsOfType, createSelector, isAdmin } from 'selectors'
-import { getXoaPlan, PREMIUM } from 'xoa-plans'
+import { getXoaPlan, CURRENT as XOA_PLAN, ENTERPRISE, PREMIUM } from 'xoa-plans'
 import { SelectSuspendSr } from 'select-suspend-sr'
 
 import BootOrder from './boot-order'
 import VusbCreateModal from './vusb-create-modal'
 import PciAttachModal from './pci-attach-modal'
+import XenStoreCreateModal, { XENSTORE_PREFIX } from './xenstore-create-modal'
 import { subscribeSecurebootReadiness, subscribeGetGuestSecurebootReadiness } from '../../common/xo'
 
 // Button's height = react-select's height(36 px) + react-select's border-width(1 px) * 2
@@ -444,6 +445,7 @@ const Acls = decorate([
         (state, { acls, vm }) =>
           confirm({
             title: _('vmAddAcls'),
+            icon: 'menu-settings-acls',
             body: <AddAclsModal acls={acls} vm={vm} />,
           })
             .then(async ({ action, subjects }) => {
@@ -503,7 +505,16 @@ const Acls = decorate([
       )}
       <Row>
         <Col>
-          <ActionButton btnStyle='primary' handler={effects.addAcls} icon='add' size='small' tooltip={_('vmAddAcls')} />
+          <ActionButton
+            btnStyle='primary'
+            disabled={XOA_PLAN.value < ENTERPRISE.value}
+            handler={effects.addAcls}
+            icon='add'
+            size='small'
+            tooltip={
+              XOA_PLAN.value < ENTERPRISE.value ? _('availableXoaPlan', { plan: ENTERPRISE.name }) : _('vmAddAcls')
+            }
+          />
         </Col>
       </Row>
     </Container>
@@ -569,12 +580,13 @@ export default class TabAdvanced extends Component {
   }
 
   _getCpuMaskOptions = createSelector(
-    () => this.props.vm,
-    vm =>
-      times(vm.CPUs.max, number => ({
+    () => this.props.vmHosts,
+    vmHosts => {
+      return times(Math.max(...Object.values(vmHosts).map(({ cpus }) => cpus.cores)), number => ({
         value: number,
         label: `Core ${number}`,
       }))
+    }
   )
 
   _getCpuMask = createSelector(
@@ -587,6 +599,49 @@ export default class TabAdvanced extends Component {
     () => this.props.vm && this.props.vm.blockedOperations,
     blockedOperations => STOP_OPERATIONS.every(op => op in blockedOperations)
   )
+
+  _getIsMigrationBlocked = createSelector(
+    () => this.props.vm?.blockedOperations,
+    blockedOperations =>
+      blockedOperations !== undefined && ['migrate_send', 'pool_migrate'].some(op => op in blockedOperations)
+  )
+
+  _onChangeBlockMigration = block => {
+    const blockedOperations = this.props.vm.blockedOperations
+
+    const toggleBlockedOperations = () =>
+      editVm(this.props.vm, {
+        blockedOperations: Object.assign.apply(
+          null,
+          ['migrate_send', 'pool_migrate'].map(op => ({ [op]: block ? true : null }))
+        ),
+      })
+
+    if (
+      blockedOperations !== undefined &&
+      ['migrate_send', 'pool_migrate'].some(op => op in blockedOperations && blockedOperations[op].trim() !== 'true')
+    ) {
+      return confirm({
+        title: _('unblockMigrationTitle'),
+        body: (
+          <p>
+            {_('unblockMigrationConfirm')}
+            <ul>
+              {Object.keys(blockedOperations).map(op => {
+                const reason = blockedOperations[op]
+                if ((op === 'migrate_send' || op === 'pool_migrate') && reason.trim() !== 'true') {
+                  return <li key={op}>{reason}</li>
+                }
+                return null
+              })}
+            </ul>
+          </p>
+        ),
+      }).then(() => toggleBlockedOperations())
+    } else {
+      return toggleBlockedOperations()
+    }
+  }
 
   _onChangeBlockStop = block =>
     editVm(this.props.vm, {
@@ -708,6 +763,34 @@ export default class TabAdvanced extends Component {
     success(_('propagateCertificatesTitle'), _('propagateCertificatesSuccessful'))
   }
 
+  _addXenstoreEntry = async () => {
+    const xsEntry = await confirm({
+      title: _('addXenStoreEntry'),
+      icon: 'add',
+      body: <XenStoreCreateModal />,
+    })
+    if (xsEntry === undefined) {
+      return
+    }
+
+    await editVm(this.props.vm, { xenStoreData: xsEntry })
+  }
+
+  _getOnChangeXenStoreEntry = key => async value => {
+    value = value.trim()
+    await editVm(this.props.vm, {
+      xenStoreData: { [key]: value === '' ? null : value },
+    })
+  }
+
+  _getXenStoreData = createSelector(
+    () => this.props.vm,
+    vm =>
+      Object.entries(vm.xenStoreData)
+        .filter(([key]) => key.startsWith(XENSTORE_PREFIX))
+        .sort()
+  )
+
   render() {
     const {
       container,
@@ -729,6 +812,7 @@ export default class TabAdvanced extends Component {
     const isDisabled = poolGuestSecurebootReadiness === 'not_ready' || vm.boot.firmware !== 'uefi'
     const vtpmId = vm.VTPMs[0]
     const pciAttachButtonTooltip = this._getPciAttachButtonTooltip()
+    const xenstoreData = this._getXenStoreData()
 
     return (
       <Container>
@@ -1004,6 +1088,12 @@ export default class TabAdvanced extends Component {
                   </td>
                 </tr>
                 <tr>
+                  <th>{_('blockMigration')}</th>
+                  <td>
+                    <Toggle value={this._getIsMigrationBlocked()} onChange={this._onChangeBlockMigration} />
+                  </td>
+                </tr>
+                <tr>
                   <th>{_('windowsUpdateTools')}</th>
                   <td>
                     <Toggle value={vm.hasVendorDevice} onChange={value => editVm(vm, { hasVendorDevice: value })} />
@@ -1011,12 +1101,29 @@ export default class TabAdvanced extends Component {
                 </tr>
                 {vm.virtualizationMode === 'hvm' && (
                   <tr>
-                    <th>{_('nestedVirt')}</th>
+                    <th>
+                      {_('nestedVirt')}{' '}
+                      <Tooltip content={_('nestedVirtualizationWarning')}>
+                        <a
+                          href='https://docs.xcp-ng.org/compute/#-nested-virtualization'
+                          target='_blank'
+                          rel='noreferrer'
+                        >
+                          <Icon icon='alarm' className='text-warning' />
+                        </a>
+                      </Tooltip>
+                    </th>
                     <td>
                       <Toggle
                         disabled={vm.power_state !== 'Halted'}
-                        value={vm.expNestedHvm}
-                        onChange={value => editVm(vm, { expNestedHvm: value })}
+                        value={vm.isNestedVirtEnabled}
+                        onChange={value => {
+                          if (semver.satisfies(String(vmPool.platform_version), '>=3.4')) {
+                            editVm(vm, { nestedVirt: value })
+                          } else {
+                            editVm(vm, { expNestedHvm: value })
+                          }
+                        }}
                       />
                     </td>
                   </tr>
@@ -1127,7 +1234,7 @@ export default class TabAdvanced extends Component {
                     </Tooltip>
                     <a
                       className='text-muted'
-                      href='https://xcp-ng.org/docs/guides.html#guest-uefi-secure-boot'
+                      href='https://docs.xcp-ng.org/guides/guest-UEFI-Secure-Boot/'
                       rel='noreferrer'
                       style={{ display: 'block' }}
                       target='_blank'
@@ -1197,7 +1304,7 @@ export default class TabAdvanced extends Component {
                     >
                       <Icon icon='info' /> {_('seeVtpmDocumentation')}
                     </a> */}
-                    {vtpmId === undefined ? (
+                    {vtpmId == null ? (
                       <Tooltip content={addVtpmTooltip}>
                         <ActionButton
                           btnStyle='primary'
@@ -1254,6 +1361,32 @@ export default class TabAdvanced extends Component {
                     <Toggle value={vm.viridian} onChange={value => editVm(vm, { viridian: value })} />
                   </td>
                 </tr>
+              </tbody>
+            </table>
+            <br />
+            <h3>{_('xenStore')}</h3>
+            <div className='text-info'>
+              <i className='d-block'>
+                <Icon icon='info' /> {_('rebootRequiredAfterXenStoreChanges')}
+              </i>
+              <i className='d-block'>
+                <Icon icon='info' /> {_('deleteEntryDeleteValue')}
+              </i>
+            </div>
+            <br />
+            <ActionButton btnStyle='primary' handler={this._addXenstoreEntry} icon='add'>
+              {_('addXenStoreEntry')}
+            </ActionButton>
+            <table className='mt-1 table table-hover'>
+              <tbody>
+                {xenstoreData.map(([key, value]) => (
+                  <tr key={key}>
+                    <th>{key}</th>
+                    <td>
+                      <Text value={value} onChange={this._getOnChangeXenStoreEntry(key)} />
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
             <br />
@@ -1387,12 +1520,14 @@ export default class TabAdvanced extends Component {
                     </td>
                   </tr>
                 )}
-                <tr>
-                  <th>{_('vmCreator')}</th>
-                  <td>
-                    <SelectUser onChange={this._updateUser} value={vm.creation?.user} />
-                  </td>
-                </tr>
+                {isAdmin && (
+                  <tr>
+                    <th>{_('vmCreator')}</th>
+                    <td>
+                      <SelectUser onChange={this._updateUser} value={vm.creation?.user} />
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </Col>

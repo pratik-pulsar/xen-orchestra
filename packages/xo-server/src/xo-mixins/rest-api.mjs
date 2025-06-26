@@ -1,3 +1,4 @@
+import setupRestApi from '@xen-orchestra/rest-api'
 import { asyncEach } from '@vates/async-each'
 import { createGzip } from 'node:zlib'
 import { defer } from 'golike-defer'
@@ -8,20 +9,15 @@ import { pipeline } from 'node:stream/promises'
 import { json, Router } from 'express'
 import { Readable } from 'node:stream'
 import cloneDeep from 'lodash/cloneDeep.js'
-import groupBy from 'lodash/groupBy.js'
+import isEmpty from 'lodash/isEmpty.js'
 import path from 'node:path'
 import pDefer from 'promise-toolbox/defer'
 import pick from 'lodash/pick.js'
-import semver from 'semver'
-import throttle from 'lodash/throttle.js'
 import * as CM from 'complex-matcher'
 import { VDI_FORMAT_RAW, VDI_FORMAT_VHD } from '@xen-orchestra/xapi'
 
-import { getUserPublicProperties, isSrWritable } from '../utils.mjs'
+import { getUserPublicProperties, isAlarm } from '../utils.mjs'
 import { compileXoJsonSchema } from './_xoJsonSchema.mjs'
-
-// E.g: 'value: 0.6\nconfig:\n<variable>\n<name value="cpu_usage"/>\n<alarm_trigger_level value="0.4"/>\n<alarm_trigger_period value ="60"/>\n</variable>';
-const ALARM_BODY_REGEX = /^value:\s*(\d+(?:\.\d+)?)\s*config:\s*<variable>\s*<name value="(.*?)"/
 
 const { join } = path.posix
 const noop = Function.prototype
@@ -156,231 +152,14 @@ function wrap(middleware, handleNoSuchObject = false) {
   }
 }
 
-async function _getDashboardStats(app) {
-  const dashboard = {}
-
-  let hvSupportedVersions
-  let nHostsEol
-  if (typeof app.getHVSupportedVersions === 'function') {
-    try {
-      hvSupportedVersions = await app.getHVSupportedVersions()
-      nHostsEol = 0
-    } catch (error) {
-      console.error(error)
-    }
-  }
-
-  const poolIds = new Set()
-  const hosts = []
-  const writableSrs = []
-  const alarms = []
-
-  for (const obj of app.objects.values()) {
-    if (obj.type === 'host') {
-      hosts.push(obj)
-      poolIds.add(obj.$pool)
-      if (hvSupportedVersions !== undefined && !semver.satisfies(obj.version, hvSupportedVersions[obj.productBrand])) {
-        nHostsEol++
-      }
-    }
-
-    if (obj.type === 'SR') {
-      if (isSrWritable(obj)) {
-        writableSrs.push(obj)
-      }
-    }
-
-    if (obj.type === 'message' && obj.name === 'ALARM') {
-      alarms.push(obj)
-    }
-  }
-
-  dashboard.nPools = poolIds.size
-  dashboard.nHosts = hosts.length
-  dashboard.nHostsEol = nHostsEol
-
-  if (await app.hasFeatureAuthorization('LIST_MISSING_PATCHES')) {
-    const poolsWithMissingPatches = new Set()
-    let nHostsWithMissingPatches = 0
-
-    await asyncEach(hosts, async host => {
-      const xapi = app.getXapi(host)
-      try {
-        const patches = await xapi.listMissingPatches(host)
-        if (patches.length > 0) {
-          nHostsWithMissingPatches++
-          poolsWithMissingPatches.add(host.$pool)
-        }
-      } catch (error) {
-        console.error(error)
-      }
-    })
-
-    const missingPatches = {
-      nHostsWithMissingPatches,
-      nPoolsWithMissingPatches: poolsWithMissingPatches.size,
-    }
-
-    dashboard.missingPatches = missingPatches
-  }
-
-  try {
-    const backupRepositoriesSize = Object.values(await app.getAllRemotesInfo()).reduce(
-      (prev, remoteInfo) => ({
-        available: prev.available + remoteInfo.available,
-        backups: 0, // @TODO: compute the space used by backups
-        other: 0, // @TODO: compute the space used by everything that is not a backup
-        total: prev.total + remoteInfo.size,
-        used: prev.used + remoteInfo.used,
-      }),
-      {
-        available: 0,
-        backups: 0,
-        other: 0,
-        total: 0,
-        used: 0,
-      }
-    )
-    dashboard.backupRepositories = { size: backupRepositoriesSize }
-  } catch (error) {
-    console.error(error)
-  }
-
-  const storageRepositoriesSize = writableSrs.reduce(
-    (prev, sr) => ({
-      total: prev.total + sr.size,
-      used: prev.used + sr.physical_usage,
-    }),
-    {
-      total: 0,
-      used: 0,
-    }
-  )
-  storageRepositoriesSize.available = storageRepositoriesSize.total - storageRepositoriesSize.used
-  storageRepositoriesSize.other = 0 // @TODO: compute the space used by everything that is not a replicated VM
-  storageRepositoriesSize.replicated = 0 // @TODO: compute the space used by replicated VMs
-
-  dashboard.storageRepositories = { size: storageRepositoriesSize }
-
-  async function _jobHasAtLeastOneScheduleEnabled(job) {
-    for (const maybeScheduleId in job.settings) {
-      if (maybeScheduleId === '') {
-        continue
-      }
-
-      const schedule = await app.getSchedule(maybeScheduleId)
-      if (schedule.enabled) {
-        return true
-      }
-    }
-    return false
-  }
-
-  try {
-    const [logs, jobs] = await Promise.all([
-      app.getBackupNgLogsSorted({
-        filter: log => log.message === 'backup' || log.message === 'metadata',
-      }),
-      Promise.all([app.getAllJobs('backup'), app.getAllJobs('mirrorBackup'), app.getAllJobs('metadataBackup')]).then(
-        jobs => jobs.flat(1)
-      ),
-    ])
-    const logsByJob = groupBy(logs, 'jobId')
-
-    let disabledJobs = 0
-    let failedJobs = 0
-    let skippedJobs = 0
-    let successfulJobs = 0
-    const backupJobIssues = []
-
-    for (const job of jobs) {
-      if (!(await _jobHasAtLeastOneScheduleEnabled(job))) {
-        disabledJobs++
-        continue
-      }
-
-      const jobLogs = logsByJob[job.id]?.slice(-3)
-      if (jobLogs === undefined || jobLogs.length === 0) {
-        continue
-      }
-
-      for (let i = 0; i < jobLogs.length; i++) {
-        const { status } = jobLogs[i]
-        const isLastElement = i === jobLogs.length - 1
-
-        if (status !== 'success') {
-          if (status === 'failure' || status === 'interrupted') {
-            failedJobs++
-          } else if (status === 'skipped') {
-            skippedJobs++
-          }
-
-          backupJobIssues.push({ uuid: job.id, logs: jobLogs.map(log => log.status) })
-
-          break
-        }
-
-        if (isLastElement) {
-          successfulJobs++
-        }
-      }
-    }
-
-    dashboard.backups = {
-      jobs: {
-        disabled: disabledJobs,
-        failed: failedJobs,
-        skipped: skippedJobs,
-        successful: successfulJobs,
-        total: jobs.length,
-      },
-      issues: backupJobIssues,
-    }
-  } catch (error) {
-    console.error(error)
-  }
-
-  dashboard.alarms = alarms.reduce((acc, { $object, body, time }) => {
-    try {
-      const [, value, name] = body.match(ALARM_BODY_REGEX)
-
-      let object
-      try {
-        object = app.getObject($object)
-      } catch (error) {
-        console.error(error)
-        object = {
-          type: 'unknown',
-          uuid: $object,
-        }
-      }
-
-      acc.push({
-        name,
-        object: {
-          type: object.type,
-          uuid: object.uuid,
-        },
-        timestamp: time,
-        value: +value,
-      })
-    } catch (error) {
-      console.error(error)
-    }
-
-    return acc
-  }, [])
-  return dashboard
-}
-const getDashboardStats = throttle(_getDashboardStats, 6e4, { trailing: false, leading: true })
-
+const keepNonAlarmMessages = message => message.type === 'message' && !isAlarm(message)
 export default class RestApi {
   #api
 
   constructor(app, { express }) {
-    // don't setup the API if express is not present
+    // don't set up the API if express is not present
     //
-    // that can happen when the app is instanciated in another context like xo-server-recover-account
+    // that can happen when the app is instantiated in another context like xo-server-recover-account
     if (express === undefined) {
       return
     }
@@ -388,13 +167,41 @@ export default class RestApi {
     const api = subRouter(express, '/rest/v0')
     this.#api = api
 
+    // register the route BEFORE the authentication middleware because this route does not require authentication
+    api.post('/users/authentication_tokens', json(), async (req, res) => {
+      const authorization = req.headers.authorization ?? ''
+      const [, encodedCredentials] = authorization.split(' ')
+      if (encodedCredentials === undefined) {
+        return res.status(401).json('missing credentials')
+      }
+
+      const [username, password] = Buffer.from(encodedCredentials, 'base64').toString().split(':')
+
+      try {
+        const { user } = await app.authenticateUser({ username, password, otp: req.query.otp })
+        const token = await app.createAuthenticationToken({
+          client: req.body.client,
+          userId: user.id,
+          description: req.body.description,
+          expiresIn: req.body.expiresIn,
+        })
+        res.json({ token })
+      } catch (error) {
+        if (invalidCredentials.is(error)) {
+          res.status(401)
+        } else {
+          res.status(400)
+        }
+        res.json(error.message)
+      }
+    })
+
     api.use((req, res, next) => {
       const { cookies, ip } = req
       app.authenticateUser({ token: cookies.authenticationToken ?? cookies.token }, { ip }).then(
         ({ user }) => {
           if (user.permission === 'admin') {
-            req.user = user
-            return next()
+            return app.runWithApiContext(user, next)
           }
 
           res.sendStatus(401)
@@ -410,6 +217,44 @@ export default class RestApi {
     })
 
     const collections = { __proto__: null }
+    // add migrated collections to maintain their discoverability
+    const swaggerEndpoints = {
+      alarms: {},
+      dashboard: {},
+      docs: {},
+      messages: {},
+      networks: {},
+      pifs: {},
+      pools: {
+        actions: {
+          emergency_shutdown: true,
+          rolling_reboot: true,
+          rolling_update: true,
+        },
+      },
+      groups: {},
+      users: {},
+      vifs: {},
+      vms: {
+        actions: {
+          start: true,
+          clean_shutdown: true,
+          hard_shutdown: true,
+          clean_reboot: true,
+          hard_reboot: true,
+          snapshot: true,
+        },
+      },
+      'vm-controllers': {},
+      'vm-snapshots': {},
+      'vm-templates': {},
+      hosts: {},
+      srs: {},
+      vbds: {},
+      vdis: {},
+      'vdi-snapshots': {},
+      servers: {},
+    }
 
     const withParams = (fn, paramsSchema) => {
       fn.params = paramsSchema
@@ -422,12 +267,14 @@ export default class RestApi {
         'host',
         'message',
         'network',
+        'PIF',
         'pool',
         'SR',
         'VBD',
         'VDI-snapshot',
         'VDI',
         'VIF',
+        'VM-controller',
         'VM-snapshot',
         'VM-template',
         'VM',
@@ -457,7 +304,7 @@ export default class RestApi {
         await sendObjects(
           Object.values(
             app.getObjects({
-              filter: every(_ => _.type === 'message' && _.$object === id, handleOptionalUserFilter(query.filter)),
+              filter: every(_ => _.$object === id, keepNonAlarmMessages, handleOptionalUserFilter(query.filter)),
               limit: ifDef(query.limit, Number),
             })
           ),
@@ -466,10 +313,35 @@ export default class RestApi {
           '/messages'
         )
       }
+
+      async function alarms(req, res) {
+        const {
+          object: { id },
+          query,
+        } = req
+        await sendObjects(
+          Object.values(
+            app.getObjects({
+              filter: every(_ => _.$object === id, isAlarm, handleOptionalUserFilter(query.filter)),
+              limit: ifDef(query.limit, Number),
+            })
+          ),
+          req,
+          res,
+          '/alarms'
+        )
+      }
+
       for (const type of types) {
         const id = type.toLocaleLowerCase() + 's'
 
-        collections[id] = { getObject, getObjects, routes: { messages }, isCorrectType: _ => _.type === type, type }
+        collections[id] = {
+          getObject,
+          getObjects,
+          routes: { messages, alarms },
+          isCorrectType: _ => _.type === type,
+          type,
+        }
       }
 
       collections.hosts.routes = {
@@ -552,31 +424,64 @@ export default class RestApi {
           )
         }
 
-        for (const collection of ['vms', 'vm-snapshots', 'vm-templates']) {
+        for (const collection of ['vms', 'vm-controllers', 'vm-snapshots', 'vm-templates']) {
           collections[collection].routes.vdis = vdis
         }
       }
 
       collections.pools.actions = {
         create_vm: withParams(
-          defer(async ($defer, { xapiObject: { $xapi } }, { affinity, boot, install, template, ...params }, req) => {
-            params.affinityHost = affinity
-            params.installRepository = install?.repository
+          defer(
+            async (
+              $defer,
+              { xapiObject: { $xapi } },
+              { affinity, boot, cloud_config, destroy_cloud_config_vdi, install, network_config, template, ...params },
+              req
+            ) => {
+              params.affinityHost = affinity
+              params.installRepository = install?.repository
+              // Mac expect min length 1
+              params.vifs = params.vifs.map(vif => ({ ...vif, mac: vif.mac?.trim() ?? '' }))
+              const vm = await $xapi.createVm(template, params, undefined, app.apiContext.user.id)
+              $defer.onFailure.call($xapi, 'VM_destroy', vm.$ref)
 
-            const vm = await $xapi.createVm(template, params, undefined, req.user.id)
-            $defer.onFailure.call($xapi, 'VM_destroy', vm.$ref)
+              let cloudConfigVdiUuid
+              if (cloud_config !== undefined) {
+                cloudConfigVdiUuid = await $xapi.VM_createCloudInitConfig(vm.$ref, cloud_config, {
+                  networkConfig: network_config,
+                })
+              }
 
-            if (boot) {
-              await $xapi.callAsync('VM.start', vm.$ref, false, false)
+              let timeLimit
+              if (boot) {
+                timeLimit = Date.now() + 10 * 60 * 1000
+                await $xapi.callAsync('VM.start', vm.$ref, false, false)
+              }
+
+              if (destroy_cloud_config_vdi && cloudConfigVdiUuid !== undefined && boot) {
+                try {
+                  await $xapi.VDI_destroyCloudInitConfig($xapi.getObject(cloudConfigVdiUuid).$ref, {
+                    timeLimit,
+                  })
+                } catch (error) {
+                  console.error('destroy cloud init config VDI failed', {
+                    error,
+                    vdi: { uuid: cloudConfigVdiUuid },
+                    vm: { uuid: vm.uuid },
+                  })
+                }
+              }
+
+              return vm.uuid
             }
-
-            return vm.uuid
-          }),
+          ),
           {
             affinity: { type: 'string', optional: true },
             auto_poweron: { type: 'boolean', optional: true },
             boot: { type: 'boolean', default: false },
             clone: { type: 'boolean', default: true },
+            cloud_config: { type: 'string', optional: true },
+            destroy_cloud_config_vdi: { type: 'boolean', default: false },
             install: {
               type: 'object',
               optional: true,
@@ -588,7 +493,49 @@ export default class RestApi {
             memory: { type: 'integer', optional: true },
             name_description: { type: 'string', minLength: 0, optional: true },
             name_label: { type: 'string' },
+            network_config: { type: 'string', optional: true },
             template: { type: 'string' },
+            vdis: {
+              type: 'array',
+              default: [],
+              items: {
+                type: 'object',
+                properties: {
+                  destroy: { type: 'boolean', optional: true },
+                  userdevice: { type: 'string', optional: true },
+                  size: { type: 'number', optional: true },
+                  sr: { type: 'string', optional: true },
+                  name_description: { type: 'string', optional: true },
+                  name_label: { type: 'string', optional: true },
+                },
+                if: {
+                  not: {
+                    required: ['userdevice'],
+                  },
+                },
+                then: {
+                  required: ['size', 'name_label'],
+                  not: {
+                    required: ['destroy'],
+                  },
+                },
+              },
+            },
+            vifs: {
+              default: [],
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  destroy: { type: 'boolean', optional: true },
+                  device: { type: 'string', optional: true },
+                  ipv4_allowed: { type: 'array', items: { type: 'string' }, optional: true },
+                  ipv6_allowed: { type: 'array', items: { type: 'string' }, optional: true },
+                  mac: { type: 'string', optional: true },
+                  network: { type: 'string', optional: true },
+                },
+              },
+            },
           }
         ),
         emergency_shutdown: async ({ xapiObject }) => {
@@ -625,12 +572,6 @@ export default class RestApi {
 
     collections.backup = {}
     collections.groups = {
-      getObject(id) {
-        return app.getGroup(id)
-      },
-      async getObjects(filter, limit) {
-        return handleArray(await app.getAllGroups(), filter, limit)
-      },
       routes: {
         async users(req, res) {
           const { filter, limit } = req.query
@@ -685,22 +626,21 @@ export default class RestApi {
         return stream[Symbol.asyncIterator]()
       },
     }
-    collections.servers = {
-      getObject(id) {
-        return app.getXenServer(id)
-      },
-      async getObjects(filter, limit) {
-        return handleArray(await app.getAllXenServers(), filter, limit)
-      },
-    }
     collections.users = {
-      getObject(id) {
-        return app.getUser(id).then(getUserPublicProperties)
-      },
-      async getObjects(filter, limit) {
-        return handleArray(await app.getAllUsers(), filter, limit)
-      },
       routes: {
+        async authentication_tokens(req, res) {
+          const { filter, limit } = req.query
+
+          const me = app.apiContext.user
+          const user = req.object
+          if (me.id !== user.id) {
+            return res.status(403).json('You can only see your own authentication tokens')
+          }
+
+          const tokens = await app.getAuthenticationTokensForUser(me.id)
+
+          res.json(handleArray(tokens, filter, limit))
+        },
         async groups(req, res) {
           const { filter, limit } = req.query
           await sendObjects(
@@ -716,7 +656,6 @@ export default class RestApi {
         },
       },
     }
-    collections.dashboard = {}
 
     // normalize collections
     for (const id of Object.keys(collections)) {
@@ -768,12 +707,21 @@ export default class RestApi {
 
     api.get(
       '/',
-      wrap((req, res) => sendObjects(Object.values(collections), req, res))
+      wrap((req, res) => {
+        const endpoints = new Set([...Object.keys(collections), ...Object.keys(swaggerEndpoints)])
+        return sendObjects(endpoints, req, res)
+      })
     )
 
     // For compatibility redirect from /backups* to /backup
     api.get('/backups*', (req, res) => {
       res.redirect(308, req.baseUrl + '/backup' + req.params[0])
+    })
+
+    // handle /users/me and /users/me/*
+    api.get(/^\/users\/me(\/.*)?$/, (req, res) => {
+      const user = app.apiContext.user
+      res.redirect(307, req.baseUrl + '/users/' + user.id + (req.params[0] ?? ''))
     })
 
     const backupTypes = {
@@ -830,13 +778,6 @@ export default class RestApi {
       res.redirect(308, req.baseUrl + '/backup/jobs/vm/' + req.params.id)
     })
 
-    api.get(
-      '/dashboard',
-      wrap(async (req, res) => {
-        res.json(await getDashboardStats(app))
-      })
-    )
-
     api
       .get(
         '/restore',
@@ -857,7 +798,7 @@ export default class RestApi {
         ['/backup/logs/:id', '/restore/logs/:id'],
         wrap(async (req, res) => {
           res.json(await app.getBackupNgLogs(req.params.id))
-        })
+        }, true)
       )
 
     api
@@ -895,8 +836,11 @@ export default class RestApi {
 
     api.get(
       '/:collection',
-      wrap(async (req, res) => {
+      wrap(async (req, res, next) => {
         const { collection, query } = req
+        if (swaggerEndpoints[collection.id] !== undefined) {
+          return next('route')
+        }
 
         const filter = handleOptionalUserFilter(query.filter)
 
@@ -928,7 +872,14 @@ export default class RestApi {
         const nbdConcurrency = req.query.nbdConcurrency && parseInt(req.query.nbdConcurrency)
         const stream = await req.xapiObject.$exportContent({ format: req.params.format, preferNbd, nbdConcurrency })
 
-        res.writeHead(200, 'OK', { 'content-disposition': 'attachment', 'content-length': stream.length })
+        const headers = { 'content-disposition': 'attachment' }
+
+        const { length } = stream
+        if (length !== undefined) {
+          headers['content-length'] = length
+        }
+
+        res.writeHead(200, 'OK', headers)
         await pipeline(stream, res)
       })
     )
@@ -960,11 +911,15 @@ export default class RestApi {
       })
     )
 
-    api.get('/:collection/:object', (req, res) => {
+    api.get('/:collection/:object', (req, res, next) => {
+      const { collection } = req
+      if (swaggerEndpoints[collection.id] !== undefined) {
+        return next('route')
+      }
       let result = req.object
 
       // add locations of sub-routes for discoverability
-      const { routes } = req.collection
+      const { routes } = collection
       if (routes !== undefined) {
         result = { ...result }
         for (const route of Object.keys(routes)) {
@@ -974,6 +929,79 @@ export default class RestApi {
 
       res.json(result)
     })
+
+    // Generic route captures all PATCH requests, preventing group/update from being executed so patch/users must be placed before patch/object
+    api.patch(
+      '/:collection(users)/:id',
+      json(),
+      wrap(async (req, res) => {
+        const isAdmin = app.apiContext.permission === 'admin'
+
+        const { id } = req.params
+        const { name, password, permission, preferences } = req.body
+
+        if (isAdmin) {
+          if (permission != null && id === app.apiContext.user.id) {
+            return res.status(403).json({ message: 'A user cannot change its own permission' })
+          }
+        } else if (name != null || password != null || permission != null) {
+          return res.status(403).json({ message: 'These properties can only be changed by an administrator' })
+        }
+
+        const user = await app.getUser(id)
+
+        if (!isEmpty(user.authProviders) && (name != null || password != null)) {
+          return res.status(403).json({ message: 'Cannot change the name or password of synchronized user' })
+        }
+
+        if (
+          (name !== undefined && typeof name !== 'string') ||
+          (password !== undefined && typeof password !== 'string') ||
+          (permission !== undefined && typeof permission !== 'string') ||
+          (preferences !== undefined && (preferences === null || typeof preferences !== 'object'))
+        ) {
+          return res.status(400).json({
+            message: 'name, password and permission (if provided) must be strings. preferences must be an object',
+          })
+        }
+
+        await app.updateUser(id, { name, password, permission, preferences })
+
+        res.sendStatus(204)
+      })
+    )
+
+    // should go before routes /:collection/:object because they will match before
+    api.patch(
+      '/:collection(groups)/:id',
+      json(),
+      wrap(async (req, res) => {
+        const { id } = req.params
+        const { name } = req.body
+
+        const group = await app.getGroup(id)
+        if (group.provider !== undefined) {
+          return res.status(403).json({ error: 'Cannot edit synchronized group' })
+        }
+
+        if (name === null) {
+          return res.status(400).json({ error: 'name cannot be removed' })
+        }
+        if (name !== undefined && typeof name !== 'string') {
+          return res.status(400).json({ error: 'name must be a string' })
+        }
+
+        try {
+          await app.updateGroup(id, { name })
+          res.sendStatus(204)
+        } catch (error) {
+          if (error.message === `the group ${name} already exists`) {
+            return res.status(400).json({ error: error.message })
+          }
+          throw error
+        }
+      }, true)
+    )
     api
       .patch(
         '/:collection/:object',
@@ -1049,9 +1077,10 @@ export default class RestApi {
       res.json({ ...action })
     })
     api.post('/:collection/:object/actions/:action', json(), (req, res, next) => {
+      const { collection } = req
       const { action } = req.params
       const fn = req.collection.actions?.[action]
-      if (fn === undefined) {
+      if (fn === undefined || swaggerEndpoints[collection.id]?.actions?.[action]) {
         return next()
       }
 
@@ -1089,26 +1118,10 @@ export default class RestApi {
     )
 
     api.post(
-      '/:collection(pools)/:object/vms',
-      wrap(async (req, res) => {
-        let srRef
-        const { sr } = req.params
-        if (sr !== undefined) {
-          srRef = app.getXapiObject(sr, 'SR').$ref
-        }
-
-        const { $xapi } = req.xapiObject
-        const ref = await $xapi.VM_import(req, srRef)
-
-        res.end(await $xapi.getField('VM', ref, 'uuid'))
-      })
-    )
-
-    api.post(
       '/:collection(srs)/:object/vdis',
       wrap(async (req, res) => {
         const sr = req.xapiObject
-        req.length = +req.headers['content-length']
+        req.length = ifDef(req.headers['content-length'], Number)
 
         const { name_label, name_description, raw } = req.query
         const vdiRef = await sr.$importVdi(req, {
@@ -1128,6 +1141,102 @@ export default class RestApi {
         res.sendStatus(200)
       })
     )
+
+    api.delete(
+      '/:collection(users)/:id',
+      wrap(async (req, res) => {
+        const { id } = req.params
+        await app.deleteUser(id)
+        res.sendStatus(204)
+      }, true)
+    )
+
+    api.post(
+      '/:collection(users)',
+      json(),
+      wrap(async (req, res) => {
+        const { name, password, permission } = req.body
+        if (name == null || password == null) {
+          return res.status(400).json({ message: 'name and password are required.' })
+        }
+
+        if (
+          typeof name !== 'string' ||
+          typeof password !== 'string' ||
+          (permission !== undefined && typeof permission !== 'string')
+        ) {
+          return res.status(400).json({ message: 'name, password and permission (if provided) must be strings.' })
+        }
+
+        const user = await app.createUser({ name, password, permission })
+        res.status(201).end(user.id)
+      })
+    )
+    api.put(
+      '/:collection(groups)/:id/users/:userId',
+      wrap(async (req, res) => {
+        const { id, userId } = req.params
+        const group = await app.getGroup(id)
+
+        if (group.provider !== undefined) {
+          return res.status(403).json({ message: 'cannot add user to synchronized group' })
+        }
+
+        await app.addUserToGroup(userId, id)
+
+        res.sendStatus(204)
+      }, true)
+    )
+
+    api.delete(
+      '/:collection(groups)/:id/users/:userId',
+      wrap(async (req, res) => {
+        const { id, userId } = req.params
+        const group = await app.getGroup(id)
+
+        if (group.provider !== undefined) {
+          return res.status(403).json({ message: 'cannot remove user from synchronized group' })
+        }
+
+        await app.removeUserFromGroup(userId, id)
+
+        res.sendStatus(204)
+      }, true)
+    )
+
+    api.delete(
+      '/:collection(groups)/:id',
+      wrap(async (req, res) => {
+        await app.deleteGroup(req.params.id)
+        res.sendStatus(204)
+      }, true)
+    )
+
+    api.post(
+      '/:collection(groups)',
+      json(),
+      wrap(async (req, res) => {
+        const { name } = req.body
+        if (name == null) {
+          return res.status(400).json({ error: 'name is required' })
+        }
+        if (typeof name !== 'string') {
+          return res.status(400).json({ message: 'name must be a string' })
+        }
+
+        try {
+          const group = await app.createGroup({ name })
+          res.status(201).end(group.id)
+        } catch (error) {
+          if (error.message === `the group ${name} already exists`) {
+            return res.status(400).json({ error: error.message })
+          }
+          throw error
+        }
+      })
+    )
+
+    setupRestApi(express, app)
   }
 
   registerRestApi(spec, base = '/') {

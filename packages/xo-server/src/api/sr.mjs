@@ -339,7 +339,7 @@ export async function createHba({ host, nameLabel, nameDescription, scsiId, srUu
       uuid: srUuid,
       nameLabel,
       nameDescription,
-      type: 'hba',
+      type: 'lvmohba', // SR LVM over HBA https://team.vates.fr/vates/pl/wuedob5cj3bfbmbzeyjjpnxpda
       deviceConfig,
     })
   }
@@ -723,7 +723,7 @@ export async function probeIscsiIqns({ host, target: targetIp, port, chapUser, c
 
   const targets = []
   forEach(ensureArray(xml['iscsi-target-iqns'].TGT), target => {
-    // if the target is on another IP adress, do not display it
+    // if the target is on another IP address, do not display it
     if (target.IPAddress.trim() === targetIp) {
       targets.push({
         iqn: target.TargetIQN.trim(),
@@ -788,7 +788,7 @@ export async function probeIscsiLuns({ host, target: targetIp, port, targetIqn, 
     luns.push({
       id: lun.LUNid.trim(),
       vendor: lun.vendor.trim(),
-      serial: lun.serial.trim(),
+      serial: lun.serial?.trim() || '',
       size: lun.size?.trim(),
       scsiId: lun.SCSIid.trim(),
     })

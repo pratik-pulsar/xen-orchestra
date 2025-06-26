@@ -1,6 +1,6 @@
 <!-- v1.0 -->
 <template>
-  <MenuList :disabled placement="bottom-start" shadow>
+  <MenuList :disabled placement="bottom-start">
     <template #trigger="{ open, isOpen }">
       <th
         :class="{ interactive, disabled, focus: isOpen }"
@@ -9,30 +9,31 @@
       >
         <div class="content">
           <span class="label">
-            <UiIcon :icon />
+            <VtsIcon :icon accent="current" />
             <slot />
           </span>
-          <UiIcon :icon="currentInteraction?.icon" />
+          <VtsIcon :icon="currentInteraction?.icon" accent="current" />
         </div>
       </th>
     </template>
     <MenuItem
       v-for="interaction in interactions"
       :key="interaction.id"
-      v-tooltip="$t('coming-soon')"
+      v-tooltip="t('coming-soon')"
       :disabled="interaction.disabled"
       :on-click="() => updateInteraction(interaction)"
     >
-      <UiIcon :icon="interaction.icon" />{{ interaction.label }}
-      <i v-if="currentInteraction?.id === interaction.id" class="current-interaction typo p3-regular-italic">
-        {{ $t('core.current').toLowerCase() }}
+      <VtsIcon :icon="interaction.icon" accent="current" />
+      {{ interaction.label }}
+      <i v-if="currentInteraction?.id === interaction.id" class="current-interaction typo-body-regular-small">
+        {{ t('core.current').toLowerCase() }}
       </i>
     </MenuItem>
   </MenuList>
 </template>
 
 <script lang="ts" setup>
-import UiIcon from '@core/components/icon/UiIcon.vue'
+import VtsIcon from '@core/components/icon/VtsIcon.vue'
 import MenuItem from '@core/components/menu/MenuItem.vue'
 import MenuList from '@core/components/menu/MenuList.vue'
 import { vTooltip } from '@core/directives/tooltip.directive'
@@ -94,41 +95,43 @@ const updateInteraction = (interaction: Interaction) => {
 <style lang="postcss" scoped>
 /* COLOR VARIANTS */
 .column-header.interactive {
-  --color: var(--color-purple-base);
-  --background-color: var(--background-color-primary);
+  --color: var(--color-brand-txt-base);
+  --background-color: var(--color-neutral-background-primary);
 
   &.focus {
-    --color: var(--color-purple-base);
-    --background-color: var(--background-color-purple-10);
+    --color: var(--color-brand-txt-base);
+    --background-color: var(--color-brand-background-selected);
   }
 
   &:hover {
-    --color: var(--color-purple-d20);
-    --background-color: var(--background-color-purple-20);
+    --color: var(--color-brand-txt-hover);
+    --background-color: var(--color-brand-background-hover);
   }
 
   &:active {
-    --color: var(--color-purple-d40);
-    --background-color: var(--background-color-purple-30);
+    --color: var(--color-brand-txt-active);
+    --background-color: var(--color-brand-background-active);
   }
 
   &.disabled {
-    --color: var(--color-grey-400);
-    --background-color: var(--background-color-secondary);
+    --color: var(--color-neutral-txt-secondary);
+    --background-color: var(--color-neutral-background-disabled);
   }
 }
+
 /* IMPLEMENTATION */
 .column-header.interactive {
   cursor: pointer;
   color: var(--color);
   background-color: var(--background-color);
+
   &.disabled {
     cursor: not-allowed;
   }
 }
 
 .current-interaction {
-  color: var(--color-grey-300);
+  color: var(--color-neutral-txt-secondary);
 }
 
 .content {

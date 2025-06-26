@@ -1,9 +1,15 @@
 <template>
   <div class="no-result">
     <img alt="" class="img" src="@/assets/no-result.svg" />
-    <p class="text-info">{{ $t('no-result') }}</p>
+    <p class="text-info">{{ t('no-result') }}</p>
   </div>
 </template>
+
+<script lang="ts" setup>
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+</script>
 
 <style lang="postcss" scoped>
 .no-result {
@@ -27,6 +33,6 @@
   font-weight: 500;
   font-size: 2rem;
   line-height: 150%;
-  color: var(--color-purple-base);
+  color: var(--color-brand-txt-base);
 }
 </style>

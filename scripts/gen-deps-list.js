@@ -89,6 +89,10 @@ async function main(args, scriptName) {
   const releaseOrder = computeDepOrder(allPackages)
 
   Object.entries(toRelease).forEach(([packageName, releaseType]) => {
+    if (packageName === '@xen-orchestra/lite') {
+      throw new Error(`Package ${packageName} should not be listed, it's released separately`)
+    }
+
     const rootPackage = allPackages[packageName]
 
     if (!rootPackage) {
@@ -215,7 +219,7 @@ function shouldPackageBeReleased(name, dependencies, depName, depVersion) {
     return false
   }
 
-  if (['xo-web', 'xo-server', '@xen-orchestra/lite', '@xen-orchestra/proxy', '@xen-orchestra/web'].includes(name)) {
+  if (['xo-web', 'xo-server', '@xen-orchestra/proxy', '@xen-orchestra/web'].includes(name)) {
     debug('forced release due to dependency update', {
       package: name,
       dependency: depName,
@@ -223,7 +227,19 @@ function shouldPackageBeReleased(name, dependencies, depName, depVersion) {
     return true
   }
 
-  return !semver.satisfies(depVersion, dependencies[depName])
+  if (semver.satisfies(depVersion, dependencies[depName])) {
+    return false
+  }
+
+  if (name === '@xen-orchestra/lite') {
+    debug('ignoring release despite dependency update', {
+      package: name,
+      dependency: depName,
+    })
+    return false
+  }
+
+  return true
 }
 
 /**

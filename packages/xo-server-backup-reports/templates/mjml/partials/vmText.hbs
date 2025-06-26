@@ -1,5 +1,8 @@
 {{#if vm}}
 <h3>{{vm.name_label}}</h3>
+{{#if vm.name_description}}
+{{vm.name_description}}
+{{/if}}
 <ul>
   <li><span style="font-weight: bold">UUID</span>: {{vm.uuid}}</li>
 {{else}}
@@ -7,6 +10,6 @@
 <ul>
   <li><span style="font-weight: bold">UUID</span>: {{taskLog.data.id}}</li>
 {{/if}}
-{{>reportTemporalData end=taskLog.end start=taskLog.start}}
-{{>reportWarnings task=taskLog}}
+{{>reportTemporalDataMjml end=taskLog.end start=taskLog.start}}
+{{>reportWarningsMjml task=taskLog}}
 {{>reportInfo task=taskLog}}

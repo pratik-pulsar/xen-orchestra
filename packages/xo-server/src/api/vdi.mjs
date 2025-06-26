@@ -67,7 +67,11 @@ export const set = defer(async function ($defer, params) {
     await xapi.resizeVdi(ref, size)
   }
   if ('cbt' in params) {
-    params.cbt ? await xapi.call('VDI.enable_cbt', ref) : await xapi.call('VDI.disable_cbt', ref)
+    if (params.cbt) {
+      await xapi.callAsync('VDI.enable_cbt', ref)
+    } else {
+      await xapi.VDI_disableCbtOnChain(ref)
+    }
   }
 
   // Other fields.
@@ -118,9 +122,9 @@ export async function migrate({ vdi, sr, resourceSet }) {
     }
   }
 
-  await xapi.moveVdi(vdi._xapiRef, sr._xapiRef)
+  const { uuid } = await xapi.moveVdi(vdi._xapiRef, sr._xapiRef)
 
-  return true
+  return uuid
 }
 
 migrate.params = {

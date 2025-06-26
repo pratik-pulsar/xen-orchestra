@@ -30,13 +30,14 @@ export default class MultiNbdClient {
    * open nbdConcurrency connections to NBD servers
    * it must obtain at least one connection to succeed
    * it tries to spread connections on multiple host
+   *
+   * @returns {Promise<void>}
    */
   async connect() {
     const candidates = [...this.#settings]
 
-    const promises = []
     const baseOptions = this.#options
-    const  _connect = async () => {
+    const _connect = async () => {
       if (candidates.length === 0) {
         return
       }
@@ -63,11 +64,11 @@ export default class MultiNbdClient {
         return _connect()
       }
     }
+    // don't connect in parallel since this can lead to race condition
+    // on distributed systems ( like the NBD server of the XAPI)
     for (let i = 0; i < this.#nbdConcurrency; i++) {
-      promises.push(_connect())
+      await _connect()
     }
-    await Promise.all(promises)
-
     if (this.#clients.length === 0) {
       throw new Error(`Fail to connect to any Nbd client`)
     }
@@ -78,17 +79,30 @@ export default class MultiNbdClient {
     }
   }
 
+  /**
+   * @returns {Promise<void>}
+   */
   async disconnect() {
     await asyncEach(this.#clients, client => client.disconnect(), {
       stopOnError: false,
     })
   }
 
+  /**
+   *
+   * @param {number} index
+   * @param {number} size
+   * @returns {Promise<Buffer>}
+   */
   async readBlock(index, size = NBD_DEFAULT_BLOCK_SIZE) {
     const clientId = index % this.#clients.length
     return this.#clients[clientId].readBlock(index, size)
   }
 
+  /**
+   *
+   * @param {AsyncGenerator<Buffer>} indexGenerator
+   */
   async *readBlocks(indexGenerator) {
     // default : read all blocks
     const readAhead = []

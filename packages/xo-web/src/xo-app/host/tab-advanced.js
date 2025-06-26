@@ -45,6 +45,7 @@ import {
   setHostsMultipathing,
   setRemoteSyslogHost,
   setSchedulerGranularity,
+  subscribeMdadmHealth,
   subscribeSchedulerGranularity,
   toggleMaintenanceMode,
 } from 'xo'
@@ -108,7 +109,7 @@ const PCIS_COLUMNS = [
     sortCriteria: pci => pci.device_name,
   },
   {
-    name: _('enabled'),
+    name: _('passthroughEnabled'),
     itemRenderer: (pci, { pciStateById, isPciPassthroughAvailable }) => {
       if (pciStateById === undefined) {
         return <Icon icon='loading' />
@@ -248,6 +249,7 @@ MultipathableSrs.propTypes = {
 
 @addSubscriptions(props => ({
   schedGran: cb => subscribeSchedulerGranularity(props.host.id, cb),
+  mdadmHealth: subscribeMdadmHealth(props.host),
 }))
 @connectStore(() => {
   const getControlDomain = createGetObject((_, { host }) => host.controlDomain)
@@ -344,6 +346,22 @@ export default class extends Component {
         }
       })
       return uniqPacks
+    }
+  )
+
+  displayMdadmStatus = createSelector(
+    () => this.props.mdadmHealth,
+    mdadmHealth => {
+      if (mdadmHealth == null) {
+        return _('installRaidPlugin')
+      }
+
+      const raidState = mdadmHealth.raid?.State
+      if (raidState === undefined) {
+        return _('noRaidInformationAvailable')
+      }
+
+      return ['clean', 'active'].includes(raidState) ? _('raidHealthy') : _('raidStateWarning', { state: raidState })
     }
   )
 
@@ -687,6 +705,10 @@ export default class extends Component {
                         _('smartctlPluginNotInstalled')
                       ))}
                   </td>
+                </tr>
+                <tr>
+                  <th>{_('raidStatus')}</th>
+                  <td>{this.displayMdadmStatus()}</td>
                 </tr>
               </tbody>
             </table>

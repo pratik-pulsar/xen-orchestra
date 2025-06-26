@@ -39,6 +39,12 @@ module.exports = {
             version: '>=16',
           },
         ],
+        'n/no-unsupported-features/es-builtins': [
+          'error',
+          {
+            version: '>=16',
+          },
+        ],
         'n/no-unsupported-features/es-syntax': [
           'error',
           {
@@ -99,6 +105,8 @@ module.exports = {
             ],
           },
         ],
+        'no-useless-constructor': 'off',
+        '@typescript-eslint/no-useless-constructor': 'error',
         'no-void': ['error', { allowAsStatement: true }],
         'n/no-missing-import': 'off', // using 'import' plugin instead, to support TS aliases
         'no-redeclare': 'off', // automatically checked by the TypeScript compiler
@@ -184,18 +192,14 @@ module.exports = {
     // Specific rules for XO i18n-related files
     {
       files: [
-        '@xen-orchestra/lite/**/*.{vue,ts,json}',
-        '@xen-orchestra/web/**/*.{vue,ts,json}',
+        '@xen-orchestra/lite/**/*.{vue,ts}',
+        '@xen-orchestra/web/**/*.{vue,ts}',
         '@xen-orchestra/web-core/**/*.{vue,ts,json}',
       ],
       extends: ['plugin:@intlify/vue-i18n/base'],
       settings: {
         'vue-i18n': {
-          localeDir: [
-            '@xen-orchestra/lite/src/locales/*.json',
-            '@xen-orchestra/web/src/locales/*.json',
-            '@xen-orchestra/web-core/lib/locales/*.json',
-          ],
+          localeDir: ['@xen-orchestra/web-core/lib/locales/*.json'],
           messageSyntaxVersion: '^9.9.0',
         },
       },
@@ -213,13 +217,25 @@ module.exports = {
         '@intlify/vue-i18n/no-raw-text': [
           'error',
           {
-            ignoreText: ['Xen Orchestra Lite', 'Xen Orchestra', 'XO Lite', 'XCP-ng', 'XO 5', '404', '⚠️'],
+            ignoreText: [
+              'Xen Orchestra Lite',
+              'Xen Orchestra',
+              'Xen Orchestra Appliance',
+              'XO Lite',
+              'XCP-ng',
+              'XO 5',
+              '404',
+              '⚠️',
+            ],
           },
         ],
         '@intlify/vue-i18n/no-v-html': 'error',
         '@intlify/vue-i18n/valid-message-syntax': 'error',
         '@intlify/vue-i18n/no-duplicate-keys-in-locale': 'error',
-        '@intlify/vue-i18n/no-missing-keys-in-other-locales': ['error', { ignoreLocales: ['de', 'fa'] }],
+        '@intlify/vue-i18n/no-missing-keys-in-other-locales': [
+          'error',
+          { ignoreLocales: ['de', 'fa', 'cs', 'es', 'sv', 'it', 'ru', 'uk', 'nl'] },
+        ],
       },
     },
     // Specific rules for XO dev-related files
@@ -254,6 +270,8 @@ module.exports = {
       },
     },
   ],
+
+  ignorePatterns: ['@vates/fatfs/'],
 
   parserOptions: {
     ecmaVersion: 13,

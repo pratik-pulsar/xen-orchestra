@@ -4,21 +4,42 @@ import { createLogger } from '@xen-orchestra/log'
 import assert from 'assert'
 import { format } from 'json-rpc-peer'
 import { incorrectState } from 'xo-common/api-errors.js'
+import { X509Certificate } from 'node:crypto'
 
 import backupGuard from './_backupGuard.mjs'
+import { asyncEach } from '@vates/async-each'
 
+import { debounceWithKey } from '../_pDebounceWithKey.mjs'
+
+const CERT_PUBKEY_MIN_SIZE = 2048
 const IPMI_CACHE_TTL = 6e4
 const IPMI_CACHE = new TTLCache({
   ttl: IPMI_CACHE_TTL,
   max: 1000,
 })
 
+const CACHE_2CRSI = new TTLCache({
+  ttl: 6e4,
+})
+
 const log = createLogger('xo:api:host')
 
 // ===================================================================
 
-export function setMaintenanceMode({ host, maintenance }) {
+export async function setMaintenanceMode({ host, maintenance, vmsToForceMigrate }) {
   const xapi = this.getXapi(host)
+
+  if (vmsToForceMigrate) {
+    await asyncEach(vmsToForceMigrate, async vmUuid => {
+      const record = await xapi.getRecordByUuid('VM', vmUuid)
+      const ref = record.$ref
+      await Promise.all(
+        ['pool_migrate', 'migrate_send'].map(
+          async operation => await xapi.call('VM.remove_from_blocked_operations', ref, operation)
+        )
+      )
+    })
+  }
 
   return maintenance ? xapi.clearHost(xapi.getObject(host)) : xapi.enableHost(host._xapiId)
 }
@@ -28,6 +49,13 @@ setMaintenanceMode.description = 'manage the maintenance mode'
 setMaintenanceMode.params = {
   id: { type: 'string' },
   maintenance: { type: 'boolean' },
+  vmsToForceMigrate: {
+    type: 'array',
+    items: {
+      type: 'string',
+    },
+    optional: true,
+  },
 }
 
 setMaintenanceMode.resolve = {
@@ -145,7 +173,7 @@ export async function restart({
     const master = this.getObject(pool.master, 'host')
     const hostRebootRequired = host.rebootRequired
 
-    // we are currently in an host upgrade process
+    // we are currently in a host upgrade process
     if (hostRebootRequired && host.id !== master.id) {
       // this error is not ideal but it means that the pool master must be fully upgraded/rebooted before the current host can be rebooted.
       //
@@ -531,6 +559,25 @@ setControlDomainMemory.resolve = {
 }
 
 // -------------------------------------------------------------------
+
+export async function isPubKeyTooShort({ host }) {
+  const certificate = await this.getXapi(host).call('host.get_server_certificate', host._xapiRef)
+
+  const cert = new X509Certificate(certificate)
+  return cert.publicKey.asymmetricKeyDetails.modulusLength < CERT_PUBKEY_MIN_SIZE
+}
+
+isPubKeyTooShort.description = 'check if host public TLS key is long enough'
+
+isPubKeyTooShort.params = {
+  id: { type: 'string' },
+}
+
+isPubKeyTooShort.resolve = {
+  host: ['id', 'host', 'view'],
+}
+
+// -------------------------------------------------------------------
 /**
  *
  * @param {{host:HOST}} params
@@ -579,6 +626,21 @@ getSmartctlInformation.resolve = {
   host: ['id', 'host', 'view'],
 }
 
+function _getMdadmHealth({ host }) {
+  return this.getXapi(host).host_getMdadmHealth(host._xapiRef)
+}
+export const getMdadmHealth = debounceWithKey(_getMdadmHealth, 6e5, ({ host }) => host.id)
+
+getMdadmHealth.description = 'retrieve the mdadm RAID health information'
+
+getMdadmHealth.params = {
+  id: { type: 'string' },
+}
+
+getMdadmHealth.resolve = {
+  host: ['id', 'host', 'view'],
+}
+
 export async function getBlockdevices({ host }) {
   const xapi = this.getXapi(host)
   if (host.productBrand !== 'XCP-ng') {
@@ -607,5 +669,15 @@ getIpmiSensors.params = {
   id: { type: 'string' },
 }
 getIpmiSensors.resolve = {
+  host: ['id', 'host', 'administrate'],
+}
+
+export function getBiosInfo({ host }) {
+  return this.getXapi(host).getHostBiosInfo(host._xapiRef, { cache: CACHE_2CRSI })
+}
+getBiosInfo.params = {
+  id: { type: 'string' },
+}
+getBiosInfo.resolve = {
   host: ['id', 'host', 'administrate'],
 }

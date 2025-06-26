@@ -16,7 +16,7 @@ const { VhdAbstract } = require('./VhdAbstract')
 const assert = require('assert')
 const getFirstAndLastBlocks = require('../_getFirstAndLastBlocks')
 
-const { debug } = createLogger('vhd-lib:VhdFile')
+const { debug, info } = createLogger('vhd-lib:VhdFile')
 
 // ===================================================================
 //
@@ -57,6 +57,8 @@ exports.VhdFile = class VhdFile extends VhdAbstract {
   #header
   footer
 
+  #closed = false
+  #closedBy
   get #blockTable() {
     assert.notStrictEqual(this.#uncheckedBlockTable, undefined, 'Block table must be initialized before access')
     return this.#uncheckedBlockTable
@@ -85,7 +87,7 @@ exports.VhdFile = class VhdFile extends VhdAbstract {
   static async open(handler, path, { flags, checkSecondFooter = true } = {}) {
     const fd = await handler.openFile(path, flags ?? 'r+')
     const vhd = new VhdFile(handler, fd)
-    // openning a file for reading does not trigger EISDIR as long as we don't really read from it :
+    // opening a file for reading does not trigger EISDIR as long as we don't really read from it :
     // https://man7.org/linux/man-pages/man2/open.2.html
     // EISDIR pathname refers to a directory and the access requested
     // involved writing (that is, O_WRONLY or O_RDWR is set).
@@ -94,11 +96,11 @@ exports.VhdFile = class VhdFile extends VhdAbstract {
       // can throw if handler is encrypted or remote is broken
       await vhd.readHeaderAndFooter(checkSecondFooter)
     } catch (err) {
-      await handler.closeFile(fd)
+      await vhd.dispose()
       throw err
     }
     return {
-      dispose: () => handler.closeFile(fd),
+      dispose: () => vhd.dispose(),
       value: vhd,
     }
   }
@@ -118,6 +120,19 @@ exports.VhdFile = class VhdFile extends VhdAbstract {
     this._path = path
   }
 
+  async dispose() {
+    if (this.#closed) {
+      info('double close', {
+        path: this._path,
+        firstClosedBy: this.#closedBy,
+        closedAgainBy: new Error().stack,
+      })
+      return
+    }
+    this.#closed = true
+    this.#closedBy = new Error().stack
+    this._path?.fd && (await this._handler.closeFile(this._path))
+  }
   // =================================================================
   // Read functions.
   // =================================================================
@@ -448,7 +463,7 @@ exports.VhdFile = class VhdFile extends VhdAbstract {
       } else {
         const firstAndLastBlocks = getFirstAndLastBlocks(this.#blockTable)
         if (firstAndLastBlocks === undefined) {
-          // no block in data : put the parent locatorn entry at the end
+          // no block in data : put the parent locator entry at the end
           position = this._getEndOfData()
         } else {
           // need more size

@@ -41,12 +41,12 @@ export default class VhdEsxiCowd extends VhdAbstract {
 
   containsBlock(blockId) {
     notEqual(this.#grainDirectory, undefined, "bat must be loaded to use contain blocks'")
-    // only check if a grain table exist for on of the sector of the block
+    // only check if a grain table exist for one of the sector of the block
     // the great news is that a grain size has 4096 entries of 512B = 2M
     // and a vhd block is also 2M
     // so we only need to check if a grain table exists (it's not created without data)
 
-    // depending on the paramters we also look into the parent data
+    // depending on the parameters we also look into the parent data
     return (
       this.#grainDirectory.readUInt32LE(blockId * 4) !== 0 ||
       (this.#lookMissingBlockInParent && this.#parentVhd.containsBlock(blockId))
@@ -68,12 +68,9 @@ export default class VhdEsxiCowd extends VhdAbstract {
     strictEqual(grainSize, 1) // 1 grain should be 1 sector long
     strictEqual(buffer.readUInt32LE(20), 4) // grain directory position in sectors
 
-    const nbGrainDirectoryEntries = buffer.readUInt32LE(24)
-    strictEqual(nbGrainDirectoryEntries, Math.ceil(numSectors / 4096))
     const size = numSectors * 512
-    // a grain directory entry contains the address of a grain table
-    // a grain table can adresses at most 4096 grain of 512 Bytes of data
-    this.#header = unpackHeader(createHeader(Math.ceil(size / (4096 * 512))))
+
+    this.#header = unpackHeader(createHeader(Math.ceil(size / (2 * 1024 * 1024) /* vhd block size */)))
     const geometry = _computeGeometryForSize(size)
     this.#footer = unpackFooter(
       createFooter(size, Math.floor(Date.now() / 1000), geometry, FOOTER_SIZE, this.#parentVhd.footer.diskType)
@@ -81,11 +78,13 @@ export default class VhdEsxiCowd extends VhdAbstract {
   }
 
   async readBlockAllocationTable() {
+    // a grain directory entry contains the address of a grain table
+    // a grain table can address at most 4096 grain of 512 Bytes of data
     const nbBlocks = this.header.maxTableEntries
     this.#grainDirectory = await this.#read(2048 /* header length */, nbBlocks * 4)
   }
 
-  // we're lucky : a grain address can address exacty a full block
+  // we're lucky : a grain address can address exactly a full block
   async readBlock(blockId) {
     notEqual(this.#grainDirectory, undefined, 'grainDirectory is not loaded')
     const sectorOffset = this.#grainDirectory.readUInt32LE(blockId * 4)

@@ -1,7 +1,7 @@
 import assert from 'node:assert'
 import { Socket } from 'node:net'
 import { connect } from 'node:tls'
-import { fromCallback, pRetry, pDelay, pTimeout, pFromCallback } from 'promise-toolbox'
+import { pRetry, pDelay, pTimeout, pFromCallback } from 'promise-toolbox'
 import { readChunkStrict } from '@vates/read-chunk'
 import { createLogger } from '@xen-orchestra/log'
 import {
@@ -20,6 +20,7 @@ import {
   OPTS_MAGIC,
   NBD_CMD_DISC,
 } from './constants.mjs'
+
 const { warn } = createLogger('vates:nbd-client')
 
 // documentation is here : https://github.com/NetworkBlockDevice/nbd/blob/master/doc/proto.md
@@ -42,9 +43,9 @@ export default class NbdClient {
   // AFAIK, there is no guaranty the server answers in the same order as the queries
   // so we handle a backlog of command waiting for response and handle concurrency manually
 
-  #waitingForResponse // there is already a listenner waiting for a response
+  #waitingForResponse // there is already a listener waiting for a response
   #nextCommandQueryId = BigInt(0)
-  #commandQueryBacklog // map of command waiting for an response queryId => { size/*in byte*/, resolve, reject}
+  #commandQueryBacklog // map of command waiting for a response queryId => { size/*in byte*/, resolve, reject}
   #connected = false
 
   #reconnectingPromise
@@ -195,7 +196,7 @@ export default class NbdClient {
     }
 
     // send export name we want to access.
-    // it's  implictly closing the negociation phase.
+    // it's implicitly closing the negotiation phase.
     await this.#write(OPTS_MAGIC)
     await this.#writeInt32(NBD_OPT_EXPORT_NAME)
     const exportNameBuffer = Buffer.from(this.#exportName)
@@ -218,8 +219,22 @@ export default class NbdClient {
   }
 
   #write(buffer) {
-    const promise = fromCallback.call(this.#serverSocket, 'write', buffer)
-    return pTimeout.call(promise, this.#messageTimeout)
+    let timeout
+    const messageTimeout = this.#messageTimeout
+    const socket = this.#serverSocket
+    return Promise.race([
+      new Promise((resolve, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error('timeout'))
+        }, messageTimeout)
+      }),
+      new Promise(resolve =>
+        socket.write(buffer, () => {
+          clearTimeout(timeout)
+          resolve()
+        })
+      ),
+    ])
   }
 
   async #readInt32() {

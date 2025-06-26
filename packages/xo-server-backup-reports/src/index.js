@@ -41,7 +41,7 @@ export const testSchema = {
   properties: {
     runId: {
       type: 'string',
-      description: `<a href="https://xen-orchestra.com/docs/backups.html#backups-execution" rel="noopener noreferrer" target="_blank">job's runId</a>`,
+      description: `<a href="https://docs.xen-orchestra.com/backups#backups-execution" rel="noopener noreferrer" target="_blank">job's runId</a>`,
     },
   },
 
@@ -50,6 +50,8 @@ export const testSchema = {
 }
 
 // ===================================================================
+
+const DEFAULT_TEMPLATE = 'mjml'
 
 const UNKNOWN_ITEM = 'Unknown'
 
@@ -63,9 +65,9 @@ const noop = Function.prototype
 
 const UNHEALTHY_VDI_CHAIN_ERROR = 'unhealthy VDI chain'
 const UNHEALTHY_VDI_CHAIN_MESSAGE =
-  '(unhealthy VDI chain) Job canceled to protect the VDI chain. See https://xen-orchestra.com/docs/backup_troubleshooting.html#vdi-chain-protection'
+  '(unhealthy VDI chain) Job canceled to protect the VDI chain. See https://docs.xen-orchestra.com/backup_troubleshooting#vdi-chain-protection'
 
-const getAdditionnalData = async (task, props) => {
+const getAdditionalData = async (task, props) => {
   if (task.data?.type === 'remote') {
     const name = await props.xo.getRemote(task.data.id).then(
       ({ name }) => name,
@@ -120,8 +122,10 @@ class BackupReportsXoPlugin {
     }
     const xo = this._xo
 
-    const log = await xo.getBackupNgLogs(runJobId)
-    if (log === undefined) {
+    let log
+    try {
+      log = await xo.getBackupNgLogs(runJobId)
+    } catch (error) {
       throw new Error(`no log found with runId=${JSON.stringify(runJobId)}`)
     }
 
@@ -132,7 +136,9 @@ class BackupReportsXoPlugin {
         // Handle improper value introduced by:
         // https://github.com/vatesfr/xen-orchestra/commit/753ee994f2948bbaca9d3161eaab82329a682773#diff-9c044ab8a42ed6576ea927a64c1ec3ebR105
         reportWhen === 'Never' ||
+        // 'failure' refers to 'Skipped and failure'
         (reportWhen === 'failure' && log.status === 'success') ||
+        // 'error' refers to 'Failure'
         (reportWhen === 'error' && (log.status === 'success' || log.status === 'skipped')))
     ) {
       return
@@ -146,15 +152,15 @@ class BackupReportsXoPlugin {
     ])
 
     if (job.type === 'backup' || job.type === 'mirrorBackup') {
-      return this._vmHandler(log, job, schedule, force)
+      return this._vmHandler(log, job, schedule)
     } else if (job.type === 'metadataBackup') {
-      return this._metadataHandler(log, job, schedule, force)
+      return this._metadataHandler(log, job, schedule)
     }
 
     throw new Error(`Unknown backup job type: ${job.type}`)
   }
 
-  async _metadataHandler(log, { name: jobName, settings }, schedule, force) {
+  async _metadataHandler(log, { name: jobName, settings }, schedule) {
     const xo = this._xo
 
     const formatDate = createDateFormatter(schedule?.timezone)
@@ -163,18 +169,18 @@ class BackupReportsXoPlugin {
 
     const tasksByStatus = groupBy(log.tasks, 'status')
 
-    if (!force && log.data.reportWhen === 'failure') {
+    if (log.status === 'failure' && log.data?.hideSuccessfulItems) {
       delete tasksByStatus.success
     }
 
     for (const taskBatch of Object.values(tasksByStatus)) {
       for (const task of taskBatch) {
-        task.additionnalData = await getAdditionnalData(task, { xo })
+        task.additionalData = await getAdditionalData(task, { xo })
 
         const subTasks = task.tasks
         if (subTasks !== undefined) {
           for (const subTask of subTasks) {
-            subTask.additionnalData = await getAdditionnalData(subTask, { xo })
+            subTask.additionalData = await getAdditionalData(subTask, { xo })
           }
         }
       }
@@ -188,20 +194,21 @@ class BackupReportsXoPlugin {
       formatDate,
     }
 
+    const backupReportTpl = log.data?.backupReportTpl ?? DEFAULT_TEMPLATE
     return this._sendReport({
       ...(await templates.markdown.transform(templates.markdown.$metadata(context))),
-      ...(await templates.mjml.transform(templates.mjml.$metadata(context))),
+      ...(await templates.compactMarkdown.transform(templates.compactMarkdown.$metadata(context))),
+      ...(await templates[backupReportTpl].transform(templates[backupReportTpl].$metadata(context))),
       mailReceivers,
       subject: templates.mjml.$metadataSubject(context),
       success: log.status === 'success',
     })
   }
 
-  async _vmHandler(log, { name: jobName, settings }, schedule, force) {
+  async _vmHandler(log, { name: jobName, settings }, schedule) {
     const xo = this._xo
 
     const mailReceivers = get(() => settings[''].reportRecipients)
-    const { reportWhen } = log.data || {}
 
     const formatDate = createDateFormatter(schedule?.timezone)
 
@@ -242,7 +249,7 @@ class BackupReportsXoPlugin {
         continue
       }
 
-      if (!force && taskLog.status === 'success' && reportWhen === 'failure') {
+      if (taskLog.status === 'success' && log.status === 'failure' && log.data?.hideSuccessfulItems) {
         ++nSuccesses
         continue
       }
@@ -359,7 +366,10 @@ class BackupReportsXoPlugin {
         failure: { tasks: failedTasks, count: nFailures },
         skipped: { tasks: skippedVms, count: nSkipped },
         interrupted: { tasks: interruptedVms, count: nInterrupted },
-        success: { tasks: force || reportWhen !== 'failure' ? successfulVms : [], count: nSuccesses },
+        success: {
+          tasks: log.status === 'failure' && log.data?.hideSuccessfulItems ? [] : successfulVms,
+          count: nSuccesses,
+        },
         vmTasks: { count: nVmTasks },
       },
       formatDate,
@@ -367,16 +377,18 @@ class BackupReportsXoPlugin {
       globalTransferSize,
     }
 
+    const backupReportTpl = log.data?.backupReportTpl ?? DEFAULT_TEMPLATE
     return this._sendReport({
       ...(await templates.markdown.transform(templates.markdown.$vm(context))),
-      ...(await templates.mjml.transform(templates.mjml.$vm(context))),
+      ...(await templates.compactMarkdown.transform(templates.compactMarkdown.$vm(context))),
+      ...(await templates[backupReportTpl].transform(templates[backupReportTpl].$vm(context))),
       mailReceivers,
       subject: templates.mjml.$vmSubject(context),
       success: log.status === 'success',
     })
   }
 
-  async _sendReport({ mailReceivers, markdown, html, subject, success }) {
+  async _sendReport({ mailReceivers, markdown, compactMarkdown, html, subject, success }) {
     if (mailReceivers === undefined || mailReceivers.length === 0) {
       mailReceivers = this._mailsReceivers
     }
@@ -397,16 +409,16 @@ class BackupReportsXoPlugin {
           ? Promise.reject(new Error('transport-xmpp plugin not enabled'))
           : xo.sendToXmppClient({
               to: this._xmppReceivers,
-              message: markdown,
+              message: compactMarkdown,
             })),
       xo.sendSlackMessage !== undefined &&
         xo.sendSlackMessage({
-          message: markdown,
+          message: compactMarkdown,
         }),
       xo.sendIcinga2Status !== undefined &&
         xo.sendIcinga2Status({
           status: success ? 'OK' : 'CRITICAL',
-          message: markdown,
+          message: compactMarkdown,
         }),
     ]
 

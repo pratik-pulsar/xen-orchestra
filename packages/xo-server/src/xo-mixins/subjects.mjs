@@ -29,6 +29,7 @@ export default class {
       const groupsDb = (this._groups = new Groups({
         connection: redis,
         namespace: 'group',
+        indexes: ['name'],
       }))
       const usersDb = (this._users = new Users({
         connection: redis,
@@ -83,7 +84,7 @@ export default class {
       properties.pw_hash = await hash(password)
     }
 
-    return this._users.create(properties)
+    return this._users.add(properties)
   }
 
   async deleteUser(id) {
@@ -247,6 +248,8 @@ export default class {
   // - name: the name of the user according to the provider
   // - data: additional data about the user that the provider may want to store
   async registerUser2(providerId, { user: { id, name }, data }) {
+    assert.equal(typeof id, 'string')
+    assert.notEqual(id, '')
     assert.equal(typeof name, 'string')
     assert.notEqual(name, '')
 
@@ -334,7 +337,7 @@ export default class {
   // -----------------------------------------------------------------
 
   createGroup({ name, provider, providerGroupId }) {
-    return this._groups.create(name, provider, providerGroupId)
+    return this._groups.add({ name, provider, providerGroupId })
   }
 
   async deleteGroup(id) {

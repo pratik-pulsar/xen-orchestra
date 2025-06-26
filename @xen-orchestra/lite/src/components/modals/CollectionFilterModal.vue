@@ -13,8 +13,8 @@
         </div>
 
         <div v-if="newFilters.some(filter => filter.isAdvanced)" class="available-properties">
-          {{ $t('available-properties-for-advanced-filter') }}
-          <div class="properties typo p1-regular">
+          {{ t('available-properties-for-advanced-filter') }}
+          <div class="properties typo-body-regular">
             <UiBadge v-for="(filter, property) in availableFilters" :key="property" :icon="getFilterIcon(filter)">
               {{ property }}
             </UiBadge>
@@ -23,12 +23,12 @@
       </template>
 
       <template #buttons>
-        <UiButton level="tertiary" @click="addNewFilter()">
-          {{ $t('add-or') }}
+        <UiButton size="medium" accent="brand" variant="tertiary" @click="addNewFilter()">
+          {{ t('add-or') }}
         </UiButton>
         <ModalDeclineButton />
         <ModalApproveButton :disabled="!isFilterValid">
-          {{ $t(editedFilter ? 'update' : 'add') }}
+          {{ t(editedFilter ? 'update' : 'add') }}
         </ModalApproveButton>
       </template>
     </ConfirmModalLayout>
@@ -45,14 +45,17 @@ import UiBadge from '@/components/ui/UiBadge.vue'
 import { getFilterIcon } from '@/libs/utils'
 import type { Filters, NewFilter } from '@/types/filter'
 import { IK_MODAL } from '@/types/injection-keys'
-import UiButton from '@core/components/button/UiButton.vue'
+import UiButton from '@core/components/ui/button/UiButton.vue'
 import { Or, parse } from 'complex-matcher'
 import { computed, inject, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 const props = defineProps<{
   availableFilters: Filters
   editedFilter?: string
 }>()
+
+const { t } = useI18n()
 
 const modal = inject(IK_MODAL)!
 const newFilters = ref<NewFilter[]>([])

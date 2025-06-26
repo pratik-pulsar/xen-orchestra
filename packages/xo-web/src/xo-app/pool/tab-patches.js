@@ -22,6 +22,7 @@ import filter from 'lodash/filter.js'
 import isEmpty from 'lodash/isEmpty.js'
 import size from 'lodash/size.js'
 import some from 'lodash/some.js'
+import { isXsHostWithCdnPatches } from 'xo/utils'
 
 const ROLLING_POOL_UPDATES_AVAILABLE = getXoaPlan().value >= ENTERPRISE.value
 
@@ -59,7 +60,8 @@ const MISSING_PATCH_COLUMNS = [
 
 const ACTIONS = [
   {
-    disabled: (_, { pool, needsCredentials }) => pool.HA_enabled || needsCredentials,
+    disabled: (_, { isXsHostWithCdnPatches, pool, needsCredentials }) =>
+      pool.HA_enabled || needsCredentials || isXsHostWithCdnPatches,
     handler: (patches, { pool }) => installPatches(patches, pool),
     icon: 'host-patch-update',
     label: _('install'),
@@ -215,26 +217,22 @@ export default class TabPatches extends Component {
       ).length
   )
 
-  hasAXostor = createSelector(
-    () => this.props.poolSrs,
-    poolSrs => some(poolSrs, { SR_type: 'linstor' })
-  )
-
   render() {
     const {
       hostPatches,
-      master: { productBrand },
+      master: { productBrand, version },
       missingPatches = [],
       pool,
       poolHosts,
       userPreferences,
     } = this.props
 
-    const needsCredentials = productBrand !== 'XCP-ng' && userPreferences.xsCredentials === undefined
+    const _isXsHostWithCdnPatches = isXsHostWithCdnPatches({ version, productBrand })
+    const needsCredentials =
+      productBrand !== 'XCP-ng' && !_isXsHostWithCdnPatches && userPreferences.xsCredentials === undefined
 
     const isSingleHost = size(poolHosts) < 2
 
-    const hasAXostor = this.hasAXostor()
     const hasMultipleVmsRunningOnLocalStorage = this.getNVmsRunningOnLocalStorage() > 0
 
     return (
@@ -245,23 +243,19 @@ export default class TabPatches extends Component {
               {ROLLING_POOL_UPDATES_AVAILABLE && (
                 <TabButton
                   btnStyle='primary'
-                  disabled={
-                    hasAXostor || isEmpty(missingPatches) || hasMultipleVmsRunningOnLocalStorage || isSingleHost
-                  }
+                  disabled={isEmpty(missingPatches) || hasMultipleVmsRunningOnLocalStorage || isSingleHost}
                   handler={rollingPoolUpdate}
                   handlerParam={pool.id}
                   icon='pool-rolling-update'
                   labelId='rollingPoolUpdate'
                   tooltip={
-                    hasAXostor
-                      ? _('rollingPoolUpdateDisabledBecauseXostorOnPool')
-                      : hasMultipleVmsRunningOnLocalStorage
-                        ? _('nVmsRunningOnLocalStorage', {
-                            nVms: this.getNVmsRunningOnLocalStorage(),
-                          })
-                        : isSingleHost
-                          ? _('multiHostPoolUpdate')
-                          : undefined
+                    hasMultipleVmsRunningOnLocalStorage
+                      ? _('nVmsRunningOnLocalStorage', {
+                          nVms: this.getNVmsRunningOnLocalStorage(),
+                        })
+                      : isSingleHost
+                        ? _('multiHostPoolUpdate')
+                        : undefined
                   }
                 />
               )}
@@ -304,11 +298,11 @@ export default class TabPatches extends Component {
                       {_('xsCredentialsMissing', {
                         link: (
                           <a
-                            href='https://xen-orchestra.com/docs/updater.html#xenserver-updates'
+                            href='https://docs.xen-orchestra.com/updater#xenserver-updates'
                             target='_blank'
                             rel='noreferrer'
                           >
-                            https://xen-orchestra.com/docs/updater.html
+                            https://docs.xen-orchestra.com/updater
                           </a>
                         ),
                       })}
@@ -318,18 +312,25 @@ export default class TabPatches extends Component {
                     actions={ACTIONS}
                     collection={missingPatches}
                     columns={MISSING_PATCH_COLUMNS}
+                    data-isXsHostWithCdnPatches={_isXsHostWithCdnPatches}
                     data-pool={pool}
                     data-needsCredentials={needsCredentials}
                     stateUrlParam='s_missing'
                   />
                 </Col>
               </Row>
-              <Row>
-                <Col>
-                  <h3>{_('hostAppliedPatches')}</h3>
-                  <SortedTable collection={hostPatches} columns={INSTALLED_PATCH_COLUMNS} stateUrlParam='s_installed' />
-                </Col>
-              </Row>
+              {!_isXsHostWithCdnPatches && (
+                <Row>
+                  <Col>
+                    <h3>{_('hostAppliedPatches')}</h3>
+                    <SortedTable
+                      collection={hostPatches}
+                      columns={INSTALLED_PATCH_COLUMNS}
+                      stateUrlParam='s_installed'
+                    />
+                  </Col>
+                </Row>
+              )}
             </div>
           )}
         </Container>

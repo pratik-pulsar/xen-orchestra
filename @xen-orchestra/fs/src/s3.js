@@ -25,7 +25,6 @@ import guessAwsRegion from './_guessAwsRegion.js'
 import RemoteHandlerAbstract from './abstract'
 import { basename, join, split } from './path'
 import { asyncEach } from '@vates/async-each'
-import { pRetry } from 'promise-toolbox'
 
 // endpoints https://docs.aws.amazon.com/general/latest/gr/s3.html
 
@@ -41,7 +40,7 @@ export default class S3Handler extends RemoteHandlerAbstract {
   #s3
 
   constructor(remote, _opts) {
-    super(remote)
+    super(remote, _opts)
     const {
       allowUnauthorized,
       host,
@@ -72,49 +71,15 @@ export default class S3Handler extends RemoteHandlerAbstract {
           keepAlive: true,
         }),
       }),
+      // from https://github.com/aws/aws-sdk-js-v3/issues/6810
+      // some non AWS services like backblaze or cloudflare don't expect the new headers
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
     })
 
     const parts = split(path)
     this.#bucket = parts.shift()
     this.#dir = join(...parts)
-    const WITH_RETRY = [
-      '_closeFile',
-      '_copy',
-      '_getInfo',
-      '_getSize',
-      '_list',
-      '_mkdir',
-      '_openFile',
-      '_outputFile',
-      '_read',
-      '_readFile',
-      '_rename',
-      '_rmdir',
-      '_truncate',
-      '_unlink',
-      '_write',
-      '_writeFile',
-    ]
-    WITH_RETRY.forEach(functionName => {
-      if (this[functionName] !== undefined) {
-        // adding the retry on the top level mtehod won't
-        // cover when _functionName are called internally
-        this[functionName] = pRetry.wrap(this[functionName], {
-          delays: [100, 200, 500, 1000, 2000],
-          // these errors should not change on retry
-          when: err => !['EEXIST', 'EISDIR', 'ENOTEMPTY', 'ENOENT', 'ENOTDIR', 'EISDIR'].includes(err?.code),
-          onRetry(error) {
-            warn('retrying method on fs ', {
-              method: functionName,
-              attemptNumber: this.attemptNumber,
-              delay: this.delay,
-              error,
-              file: this.arguments?.[0],
-            })
-          },
-        })
-      }
-    })
   }
 
   get type() {
@@ -404,7 +369,7 @@ export default class S3Handler extends RemoteHandlerAbstract {
     // nothing to do, directories do not exist, they are part of the files' path
   }
 
-  // reimplement _rmtree to handle efficiantly path with more than 1000 entries in trees
+  // reimplement _rmtree to handle efficiently path with more than 1000 entries in trees
   // @todo : use parallel processing for unlink
   async _rmtree(path) {
     let NextContinuationToken
@@ -457,7 +422,7 @@ export default class S3Handler extends RemoteHandlerAbstract {
         this.#s3.middlewareStack.use(getApplyMd5BodyChecksumPlugin(this.#s3.config))
       }
     } catch (error) {
-      // maybe the account doesn't have enought privilege to query the object lock configuration
+      // maybe the account doesn't have enough privilege to query the object lock configuration
       // be defensive and apply the md5  just in case
       if (error.$metadata.httpStatusCode === 403) {
         info(`s3 user doesnt have enough privilege to check for Object Lock, enable content MD5 header`)

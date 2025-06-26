@@ -19,9 +19,11 @@ const {
 const assert = require('assert')
 const path = require('path')
 const asyncIteratorToStream = require('async-iterator-to-stream')
+const { createLogger } = require('@xen-orchestra/log')
 const { checksumStruct, fuFooter, fuHeader } = require('../_structs')
 const { isVhdAlias, resolveVhdAlias } = require('../aliases')
 
+const { warn } = createLogger('vhd-lib:VhdAbstract')
 exports.VhdAbstract = class VhdAbstract {
   get bitmapSize() {
     return sectorsToBytes(this.sectorsOfBitmap)
@@ -37,14 +39,6 @@ exports.VhdAbstract = class VhdAbstract {
 
   get sectorsPerBlock() {
     return computeSectorsPerBlock(this.header.blockSize)
-  }
-
-  get header() {
-    throw new Error('get header is not implemented')
-  }
-
-  get footer() {
-    throw new Error('get footer not implemented')
   }
 
   /**
@@ -114,9 +108,10 @@ exports.VhdAbstract = class VhdAbstract {
    * @returns {number} the merged data size
    */
   async mergeBlock(child, blockId) {
+    const isBlockPresent = this.containsBlock(blockId)
     const block = await child.readBlock(blockId)
     await this.writeEntireBlock(block)
-    return block.data.length
+    return isBlockPresent ? 0 : this.fullBlockSize
   }
 
   /**
@@ -201,7 +196,16 @@ exports.VhdAbstract = class VhdAbstract {
   }
 
   static async unlink(handler, path) {
-    const resolved = await resolveVhdAlias(handler, path)
+    let resolved = path
+    try {
+      resolved = await resolveVhdAlias(handler, path)
+    } catch (err) {
+      // broken vhd directory must be unlinkable
+      if (err.code !== 'EISDIR') {
+        throw err
+      }
+      warn('Deleting directly a VhdDirectory', { path, err })
+    }
     try {
       await handler.unlink(resolved)
     } catch (err) {
@@ -262,7 +266,7 @@ exports.VhdAbstract = class VhdAbstract {
   // it's an approximation, ignoring the footer/header/bat size
   stream({ onProgress } = {}) {
     const { footer, batSize } = this
-    const { ...header } = this.header // copy since we don't ant to modifiy the current header
+    const { ...header } = this.header // copy since we don't want to modify the current header
     const rawFooter = fuFooter.pack(footer)
     checksumStruct(rawFooter, fuFooter)
 

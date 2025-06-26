@@ -1,19 +1,38 @@
 <template>
-  <UiButton v-if="xoaFound" :left-icon="faArrowUpRightFromSquare" class="xoa-button" @click="openXoa()">
-    {{ $t('access-xoa') }}
+  <UiButton
+    v-if="xoaFound"
+    size="medium"
+    accent="brand"
+    variant="primary"
+    :left-icon="faArrowUpRightFromSquare"
+    class="xoa-button"
+    @click="openXoa()"
+  >
+    {{ t('access-xoa') }}
   </UiButton>
-  <UiButton v-else :left-icon="faDownload" class="xoa-button" @click="openXoaDeploy()">
-    {{ $t('deploy-xoa') }}
+  <UiButton
+    v-else
+    size="medium"
+    accent="brand"
+    variant="primary"
+    :left-icon="faDownload"
+    class="xoa-button"
+    @click="openXoaDeploy()"
+  >
+    {{ t('deploy-xoa') }}
   </UiButton>
 </template>
 
 <script lang="ts" setup>
 import type { PRIMARY_ADDRESS_TYPE } from '@/libs/xen-api/xen-api.enums'
 import { usePoolStore } from '@/stores/xen-api/pool.store'
-import UiButton from '@core/components/button/UiButton.vue'
+import UiButton from '@core/components/ui/button/UiButton.vue'
 import { faDownload, faArrowUpRightFromSquare } from '@fortawesome/free-solid-svg-icons'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
+
+const { t } = useI18n()
 
 const router = useRouter()
 const { pool } = usePoolStore().subscribe()

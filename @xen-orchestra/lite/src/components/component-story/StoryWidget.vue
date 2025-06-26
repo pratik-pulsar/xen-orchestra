@@ -3,25 +3,30 @@
     v-if="isSelectWidget(widget)"
     v-model="model"
     :wrapper-attrs="{ class: 'full-width' }"
-    class="typo p2-regular"
+    class="typo-body-regular-small"
   >
     <option v-if="!required && model === undefined" :value="undefined" />
     <option v-for="choice in widget.choices" :key="choice.label" :value="choice.value">
       {{ choice.label }}
     </option>
   </FormSelect>
-  <div v-else-if="isRadioWidget(widget)" class="radio">
-    <FormInputWrapper v-for="choice in widget.choices" :key="choice.label">
-      <FormRadio v-model="model" :value="choice.value" />
+  <UiRadioButtonGroup v-else-if="isRadioWidget(widget)" accent="brand">
+    <UiRadioButton
+      v-for="choice in widget.choices"
+      :key="choice.label"
+      v-model="model"
+      accent="brand"
+      :value="choice.value"
+    >
       {{ choice.label }}
-    </FormInputWrapper>
-  </div>
+    </UiRadioButton>
+  </UiRadioButtonGroup>
   <div v-else-if="isBooleanWidget(widget)">
-    <FormCheckbox v-model="model" />
+    <UiCheckbox v-model="model" accent="brand" />
   </div>
-  <FormInput v-else-if="isNumberWidget(widget)" v-model.number="model" type="number" class="typo p2-regular" />
-  <FormInput v-else-if="isTextWidget(widget)" v-model="model" class="typo p2-regular" />
-  <FormJson v-else-if="isObjectWidget(widget)" v-model="model" class="typo p2-regular" />
+  <FormInput v-else-if="isNumberWidget(widget)" v-model.number="model" type="number" class="typo-body-regular-small" />
+  <FormInput v-else-if="isTextWidget(widget)" v-model="model" class="typo-body-regular-small" />
+  <FormJson v-else-if="isObjectWidget(widget)" v-model="model" class="typo-body-regular-small" />
 </template>
 
 <script lang="ts" setup>
@@ -49,10 +54,12 @@ const emit = defineEmits<{
 
 const FormJson = defineAsyncComponent(() => import('@/components/form/FormJson.vue'))
 const FormSelect = defineAsyncComponent(() => import('@/components/form/FormSelect.vue'))
-const FormCheckbox = defineAsyncComponent(() => import('@/components/form/FormCheckbox.vue'))
+const UiCheckbox = defineAsyncComponent(() => import('@core/components/ui/checkbox/UiCheckbox.vue'))
 const FormInput = defineAsyncComponent(() => import('@/components/form/FormInput.vue'))
-const FormInputWrapper = defineAsyncComponent(() => import('@/components/form/FormInputWrapper.vue'))
-const FormRadio = defineAsyncComponent(() => import('@/components/form/FormRadio.vue'))
+const UiRadioButton = defineAsyncComponent(() => import('@core/components/ui/radio-button/UiRadioButton.vue'))
+const UiRadioButtonGroup = defineAsyncComponent(
+  () => import('@core/components/ui/radio-button-group/UiRadioButtonGroup.vue')
+)
 
 const model = useVModel(props, 'modelValue', emit)
 </script>

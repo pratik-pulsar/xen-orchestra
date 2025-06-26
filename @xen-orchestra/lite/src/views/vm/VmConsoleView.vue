@@ -1,36 +1,23 @@
 <template>
   <div :class="{ 'no-ui': !uiStore.hasUi }" class="vm-console-view">
-    <div v-if="hasError">{{ $t('error-occurred') }}</div>
+    <div v-if="hasError">{{ t('error-occurred') }}</div>
     <UiSpinner v-else-if="!isReady" class="spinner" />
-    <UiStatusPanel v-else-if="!isVmRunning" :image-source="monitor" :title="$t('power-on-for-console')" />
+    <UiStatusPanel v-else-if="!isVmRunning" :image-source="monitor" :title="t('power-on-vm-for-console')" />
     <template v-else-if="vm && vmConsole">
-      <MenuList horizontal>
-        <MenuItem v-if="uiStore.hasUi" :icon="faArrowUpRightFromSquare" @click="openInNewTab">
-          {{ $t('open-console-in-new-tab') }}
-        </MenuItem>
-        <MenuItem
-          :icon="uiStore.hasUi ? faUpRightAndDownLeftFromCenter : faDownLeftAndUpRightToCenter"
-          @click="toggleFullScreen"
-        >
-          {{ $t(uiStore.hasUi ? 'fullscreen' : 'fullscreen-leave') }}
-        </MenuItem>
-        <MenuItem :disabled="!consoleElement" :icon="faKeyboard" @click="sendCtrlAltDel">
-          {{ $t('send-ctrl-alt-del') }}
-        </MenuItem>
-      </MenuList>
-      <RemoteConsole
-        ref="consoleElement"
-        :is-console-available="isConsoleAvailable"
-        :location="vmConsole.location"
-        class="remote-console"
-      />
+      <VtsLayoutConsole>
+        <VtsRemoteConsole v-if="url" ref="console-element" :url :is-console-available="isConsoleAvailable" />
+        <template #actions>
+          <VtsActionsConsole :send-ctrl-alt-del="sendCtrlAltDel" />
+          <VtsDivider type="stretch" />
+          <VtsClipboardConsole />
+        </template>
+      </VtsLayoutConsole>
     </template>
   </div>
 </template>
 
 <script lang="ts" setup>
 import monitor from '@/assets/monitor.svg'
-import RemoteConsole from '@/components/RemoteConsole.vue'
 import UiSpinner from '@/components/ui/UiSpinner.vue'
 import UiStatusPanel from '@/components/ui/UiStatusPanel.vue'
 import { isVmOperationPending } from '@/libs/vm'
@@ -39,18 +26,16 @@ import type { XenApiVm } from '@/libs/xen-api/xen-api.types'
 import { usePageTitleStore } from '@/stores/page-title.store'
 import { useConsoleStore } from '@/stores/xen-api/console.store'
 import { useVmStore } from '@/stores/xen-api/vm.store'
-import MenuItem from '@core/components/menu/MenuItem.vue'
-import MenuList from '@core/components/menu/MenuList.vue'
+import { useXenApiStore } from '@/stores/xen-api.store'
+import VtsActionsConsole from '@core/components/console/VtsActionsConsole.vue'
+import VtsClipboardConsole from '@core/components/console/VtsClipboardConsole.vue'
+import VtsLayoutConsole from '@core/components/console/VtsLayoutConsole.vue'
+import VtsRemoteConsole from '@core/components/console/VtsRemoteConsole.vue'
+import VtsDivider from '@core/components/divider/VtsDivider.vue'
 import { useUiStore } from '@core/stores/ui.store'
-import {
-  faArrowUpRightFromSquare,
-  faDownLeftAndUpRightToCenter,
-  faKeyboard,
-  faUpRightAndDownLeftFromCenter,
-} from '@fortawesome/free-solid-svg-icons'
-import { computed, ref } from 'vue'
+import { computed, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 
 const STOP_OPERATIONS = [
   VM_OPERATION.SHUTDOWN,
@@ -64,9 +49,11 @@ const STOP_OPERATIONS = [
 
 usePageTitleStore().setTitle(useI18n().t('console'))
 
-const router = useRouter()
+const { t } = useI18n()
+
 const route = useRoute()
 const uiStore = useUiStore()
+const xenApiStore = useXenApiStore()
 
 const { isReady: isVmReady, getByUuid: getVmByUuid, hasError: hasVmError } = useVmStore().subscribe()
 
@@ -94,22 +81,23 @@ const vmConsole = computed(() => {
   return getConsoleByOpaqueRef(consoleOpaqueRef)
 })
 
+const url = computed(() => {
+  if (xenApiStore.currentSessionId == null) {
+    return
+  }
+  const _url = new URL(vmConsole.value!.location)
+  _url.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  _url.searchParams.set('session_id', xenApiStore.currentSessionId)
+  return _url
+})
+
 const isConsoleAvailable = computed(() =>
   vm.value !== undefined ? !isVmOperationPending(vm.value, STOP_OPERATIONS) : false
 )
 
-const consoleElement = ref()
+const consoleElement = useTemplateRef('console-element')
 
 const sendCtrlAltDel = () => consoleElement.value?.sendCtrlAltDel()
-
-const toggleFullScreen = () => {
-  uiStore.hasUi = !uiStore.hasUi
-}
-
-const openInNewTab = () => {
-  const routeData = router.resolve({ query: { ui: '0' } })
-  window.open(routeData.href, '_blank')
-}
 </script>
 
 <style lang="postcss" scoped>
@@ -124,58 +112,10 @@ const openInNewTab = () => {
 }
 
 .spinner {
-  color: var(--color-purple-base);
+  color: var(--color-brand-txt-base);
   display: flex;
   margin: auto;
   width: 10rem;
   height: 10rem;
-}
-
-.remote-console {
-  flex: 1;
-  max-width: 100%;
-  height: 100%;
-}
-
-.not-available {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  text-align: center;
-  gap: 4rem;
-  color: var(--color-purple-base);
-  font-size: 3.6rem;
-}
-
-.open-in-new-window {
-  position: absolute;
-  top: 0;
-  right: 0;
-  overflow: hidden;
-
-  & > .link {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    background-color: var(--color-purple-base);
-    color: var(--color-grey-600);
-    text-decoration: none;
-    padding: 1.5rem;
-    font-size: 1.6rem;
-    border-radius: 0 0 0 0.8rem;
-    white-space: nowrap;
-    transform: translateX(calc(100% - 4.5rem));
-    transition: transform 0.2s ease-in-out;
-
-    &:hover {
-      transform: translateX(0);
-    }
-  }
-}
-
-.vm-console-view:deep(.menu-list) {
-  background-color: transparent;
-  align-self: center;
 }
 </style>

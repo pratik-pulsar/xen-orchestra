@@ -1,21 +1,21 @@
 <template>
   <header class="app-header">
-    <UiIcon v-if="isMobile" ref="navigationTrigger" :icon="faBars" class="toggle-navigation" />
+    <UiIcon v-if="uiStore.isMobile" ref="navigationTrigger" :icon="faBars" class="toggle-navigation" />
     <RouterLink :to="{ name: 'home' }">
-      <img v-if="isMobile" alt="XO Lite" src="../assets/logo.svg" />
+      <img v-if="uiStore.isMobile" alt="XO Lite" src="../assets/logo.svg" />
       <TextLogo v-else />
     </RouterLink>
     <slot />
     <div class="right">
       <PoolOverrideWarning as-tooltip />
-      <XoaButton v-if="isDesktop" />
-      <AccountButton />
+      <XoaButton v-if="uiStore.isDesktop" />
+      <AccountMenu />
     </div>
   </header>
 </template>
 
 <script lang="ts" setup>
-import AccountButton from '@/components/AccountButton.vue'
+import AccountMenu from '@/components/account-menu/AccountMenu.vue'
 import PoolOverrideWarning from '@/components/PoolOverrideWarning.vue'
 import TextLogo from '@/components/TextLogo.vue'
 import UiIcon from '@/components/ui/icon/UiIcon.vue'
@@ -26,7 +26,6 @@ import { faBars } from '@fortawesome/free-solid-svg-icons'
 import { storeToRefs } from 'pinia'
 
 const uiStore = useUiStore()
-const { isMobile, isDesktop } = storeToRefs(uiStore)
 
 const navigationStore = useNavigationStore()
 const { trigger: navigationTrigger } = storeToRefs(navigationStore)
@@ -37,13 +36,13 @@ const { trigger: navigationTrigger } = storeToRefs(navigationStore)
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 5.5rem;
-  padding: 1rem;
-  border-bottom: 0.1rem solid var(--color-grey-500);
-  background-color: var(--background-color-secondary);
+  height: 5.6rem;
+  padding: 0 1.6rem;
+  border-bottom: 0.1rem solid var(--color-neutral-border);
+  background-color: var(--color-neutral-background-secondary);
 
   img {
-    width: 4rem;
+    width: 3.7rem;
   }
 
   .text-logo {

@@ -9,13 +9,14 @@
       d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
     />
     <text class="progress-circle-text" text-anchor="middle" x="50%" y="50%">
-      {{ $n(progress / 100, 'percent') }}
+      {{ n(progress / 100, 'percent') }}
     </text>
   </svg>
 </template>
 
 <script lang="ts" setup>
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 interface Props {
   value: number
@@ -25,6 +26,8 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
   maxValue: 100,
 })
+
+const { n } = useI18n()
 
 const progress = computed(() => {
   if (props.maxValue === 0) {
@@ -39,7 +42,7 @@ const progress = computed(() => {
 .progress-circle-fill {
   animation: progress 1s ease-out forwards;
   fill: none;
-  stroke: var(--color-green-base);
+  stroke: var(--color-success-item-base);
   stroke-width: 1.2;
   stroke-linecap: round;
   stroke-dasharray: v-bind(progress), 100;
@@ -48,13 +51,13 @@ const progress = computed(() => {
 .progress-circle-background {
   fill: none;
   stroke-width: 1.2;
-  stroke: var(--color-grey-500);
+  stroke: var(--color-neutral-background-disabled);
 }
 
 .progress-circle-text {
   font-size: 0.7rem;
   font-weight: bold;
-  fill: var(--color-green-base);
+  fill: var(--color-success-item-base);
   text-anchor: middle;
   alignment-baseline: middle;
 }

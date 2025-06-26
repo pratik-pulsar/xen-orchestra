@@ -42,9 +42,10 @@ class ConfigureIpModal extends Component {
 
     const { pif } = props
     if (pif) {
+      const ipv6 = pif.ipv6?.[0]?.trim()
       this.state = {
         ...pick(pif, ['ip', 'netmask', 'dns', 'gateway']),
-        ipv6: pif.ipv6?.[0],
+        ipv6: ipv6 === '' ? undefined : ipv6,
       }
     }
   }
@@ -176,7 +177,7 @@ class PifItemMode extends Component {
     () => this.state.ipv4ConfigModes,
     () => this.state.ipv6ConfigModes,
     (isIpv6, ipv4ConfigModes, ipv6ConfigModes) =>
-      (isIpv6 ? ipv6ConfigModes : ipv4ConfigModes).map(mode => ({ label: mode, value: mode }))
+      (isIpv6 ? ipv6ConfigModes : ipv4ConfigModes)?.map(mode => ({ label: mode, value: mode }))
   )
 
   _getValue = createSelector(

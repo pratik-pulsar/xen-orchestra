@@ -1,15 +1,21 @@
 import { basename, join } from 'node:path'
-import { createWriteStream } from 'node:fs'
+import { createReadStream, createWriteStream } from 'node:fs'
 import { normalize } from 'node:path/posix'
 import { parse as parseContentType } from 'content-type'
 import { pipeline } from 'node:stream'
 import { pipeline as pPipeline } from 'node:stream/promises'
 import { readChunk } from '@vates/read-chunk'
+import { stat } from 'node:fs/promises'
 import getopts from 'getopts'
 import hrp from 'http-request-plus'
 import merge from 'lodash/merge.js'
 import set from 'lodash/set.js'
 import split2 from 'split2'
+import XoLib from 'xo-lib'
+
+import { streamStatsPrinter } from './_streamStatsPrinter.mjs'
+
+const Xo = XoLib.default
 
 const PREFIX = '/rest/v0/'
 
@@ -38,8 +44,8 @@ function parseParams(args) {
 }
 
 function stripPrefix(path) {
-  path = normalize('/' + path)
-  return path.startsWith(PREFIX) ? path.slice(PREFIX.length) : path
+  const normalized = normalize('/' + path)
+  return normalized.startsWith(PREFIX) ? normalized.slice(PREFIX.length) : path
 }
 
 const COMMANDS = {
@@ -57,19 +63,18 @@ const COMMANDS = {
       output,
     } = getopts(args, {
       alias: { output: 'o' },
-      string: 'output',
+      string: ['output'],
       stopEarly: true,
     })
 
     const response = await this.exec(path, { query: parseParams(rest) })
 
     if (output !== '') {
-      return pPipeline(
-        response,
+      const outputStream =
         output === '-'
           ? process.stdout
           : createWriteStream(output.endsWith('/') ? join(output, basename(path)) : output, { flags: 'wx' })
-      )
+      return pPipeline(response, streamStatsPrinter(response.headers['content-length']), outputStream)
     }
 
     const { type } = parseContentType(response)
@@ -93,48 +98,57 @@ const COMMANDS = {
       let line
       while ((line = await readChunk(lines)) !== null) {
         const data = JSON.parse(line)
-        console.log(this.json ? JSON.stringify(data, null, 2) : data)
+        console.log(this.json ? JSON.stringify(data) : data)
       }
     } else {
       throw new Error('unsupported content-type ' + type)
     }
   },
+}
 
-  async patch([path, ...params]) {
-    const response = await this.exec(path, {
-      body: JSON.stringify(parseParams(params)),
-      headers: {
-        'content-type': 'application/json',
-      },
-      method: 'PATCH',
+for (const method of ['patch', 'post', 'put']) {
+  COMMANDS[method] = async function (args) {
+    const opts = getopts(args, {
+      alias: { input: 'i' },
+      string: ['input'],
+      stopEarly: true,
     })
 
-    return await response.text()
-  },
+    const [path, ...rest] = opts._
+    const params = parseParams(rest)
 
-  async post([path, ...params]) {
-    const response = await this.exec(path, {
-      body: JSON.stringify(parseParams(params)),
-      headers: {
-        'content-type': 'application/json',
-      },
-      method: 'POST',
-    })
+    let response
+    const { input } = opts
+    if (input === '') {
+      response = await this.exec(path, {
+        body: JSON.stringify(params),
+        headers: { 'content-type': 'application/json' },
+        method,
+      })
+    } else {
+      let inputStream, length
+      if (input === '-') {
+        inputStream = process.stdin
+      } else {
+        inputStream = await createReadStream(input)
+        length = (await stat(input)).size
+      }
+
+      const headers = { 'content-type': 'application/octet-stream' }
+      if (length !== undefined) {
+        headers['content-length'] = length
+      }
+
+      response = await this.exec(path, {
+        body: pipeline(inputStream, streamStatsPrinter(length), noop),
+        headers,
+        method,
+        query: params,
+      })
+    }
 
     return stripPrefix(await response.text())
-  },
-
-  async put([path, ...params]) {
-    const response = await this.exec(path, {
-      body: JSON.stringify(parseParams(params)),
-      headers: {
-        'content-type': 'application/json',
-      },
-      method: 'PUT',
-    })
-
-    return stripPrefix(await response.text())
-  },
+  }
 }
 
 export async function rest(args) {
@@ -145,7 +159,9 @@ export async function rest(args) {
 
   const { allowUnauthorized, server, token } = await this.getServerConfig()
 
-  const baseUrl = server
+  // FIXME: extract server parsing in dedicated module/function
+  const baseUrl = new Xo({ url: server })._url.replace(/^ws/, 'http')
+
   const baseOpts = {
     headers: {
       cookie: 'authenticationToken=' + token,

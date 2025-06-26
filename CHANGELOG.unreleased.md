@@ -11,13 +11,20 @@
 
 > Users must be able to say: “Nice enhancement, I'm eager to test it”
 
+- **Migrated REST API endpoints**
+  - `POST /rest/v0/pools/<pool-id>/vms` (PR [#8748](https://github.com/vatesfr/xen-orchestra/pull/8748))
+
+**XO 6**:
+  - [Dashboard] Cards are displayed as soon as they are ready (PR [#8695](https://github.com/vatesfr/xen-orchestra/pull/8695))
+  - [Tab/Network] Updated side panel in tab network behavior for mobile view (PR [#8688](https://github.com/vatesfr/xen-orchestra/pull/8688))
+  - [Site/Pool] Display pools table and side panel information in site/pools tab (PR [#8664](https://github.com/vatesfr/xen-orchestra/pull/8664))
+- [Backup] Support qcow2 disks > 2TB for backup and replication (PR [#8668](https://github.com/vatesfr/xen-orchestra/pull/8668))
+- [Export] Support qcow2 disks exports (PR [#8668](https://github.com/vatesfr/xen-orchestra/pull/8668))
+- [REST API] Expose `GET /rest/v0/sms` and `GET /rest/v0/sms/<sm-id>` (PR [#8696](https://github.com/vatesfr/xen-orchestra/pull/8696))
+
 ### Bug fixes
 
 > Users must be able to say: “I had this issue, happy to know it's fixed”
-
-- [New/SR] Fix 'an error as occured' when creating a new SR (PR [#7931](https://github.com/vatesfr/xen-orchestra/pull/7931))
-- [VM/General] Fix 'an error as occured' in general tab view for non-admin users (PR [#7928](https://github.com/vatesfr/xen-orchestra/pull/7928))
-
 
 ### Packages to release
 
@@ -35,6 +42,17 @@
 
 <!--packages-start-->
 
-- xo-web patch
+- @vates/types minor
+- @xen-orchestra/backups minor
+- @xen-orchestra/disk-transform minor
+- @xen-orchestra/qcow2 major
+- @xen-orchestra/rest-api minor
+- @xen-orchestra/web minor
+- @xen-orchestra/web-core minor
+- @xen-orchestra/xapi minor
+- vhd-lib minor
+- xo-acl-resolver patch
+- xo-server minor
+- xo-web minor
 
 <!--packages-end-->
